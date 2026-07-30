@@ -1,0 +1,1246 @@
+     1→     1→PLATAFORMA SAAS DE AGENTE DE VOZ IA
+     2→     2→
+     3→     3→## 1. VISIÓN GENERAL
+     4→     4→
+     5→     5→Construye una plataforma SaaS multiinquilino de agentes de voz con IA. El dueño del SaaS (admin) paga la cuenta maestra de Twilio. Cada cliente registrado obtiene una subcuenta de Twilio, compra números telefónicos desde el panel, y al recibir llamadas, la IA (Gemini) contesta, conversa en lenguaje natural, y ejecuta herramientas (agendar citas, consultar disponibilidad, etc.).
+     6→     6→
+     7→     7→**Modelo de negocio**: Recargas de saldo. El sistema debita por minuto (o por segundo, configurable por admin) de procesamiento de llamadas. Pagos procesados por **Whop.com**.
+     8→     8→
+     9→     9→**El Cerebro**: Gemini 3.1 Flash Live (streaming bidireccional de audio + function calling síncrono).
+    10→    10→
+    11→    11→**El Conector**: Twilio con `<Connect><Stream>` (WebSocket bidireccional).
+    12→    12→
+    13→    13→**El Frontend**: Next.js 14+ con detección de dispositivo (Desktop/Móvil), estilos inspirados en WhatsApp Web (Light/Dark).
+    14→    14→
+    15→    15→**Idioma de la plataforma**: Español. **Idioma de la IA en llamadas**: Configurable por cada negocio (español, inglés, portugués, francés, etc.).
+    16→    16→
+    17→    17→---
+    18→    18→
+    19→    19→## 2. STACK TECNOLÓGICO OBLIGATORIO
+    20→    20→
+    21→    21→| Capa | Tecnología |
+    22→    22→|------|-----------|
+    23→    23→| Frontend (Dashboard) | Next.js 14+ (App Router) + React + Tailwind CSS |
+    24→    24→| Lenguaje | TypeScript en todo el proyecto |
+    25→    25→| Backend ligero (CRUD, auth) | Next.js API Routes |
+    26→    26→| Backend tiempo real (voz, SSE) | Express.js dedicado |
+    27→    27→| Base de datos | PostgreSQL + extensión `pgvector` |
+    28→    28→| Cache | Redis (`ioredis`) |
+    29→    29→| Almacenamiento audio | Cloudflare R2 (S3 compatible) |
+    30→    30→| LLM / Voz | Google Gemini 3.1 Flash Live (`@google/genai`) |
+    31→    31→| Embeddings (RAG) | `gemini-embedding-001` (768 dimensiones) |
+    32→    32→| Telefonía | Twilio (REST + TwiML + `<Connect><Stream>`) |
+    33→    33→| Pagos | Whop.com (`@whop/sdk`) |
+    34→    34→| Logging | Pino (JSON, no-bloqueante) |
+    35→    35→| Transcodificación audio | `fluent-ffmpeg` + paquete `g711` |
+    36→    36→| Email | Nodemailer (Gmail App Password) |
+    37→    37→| Despliegue | Render.com (Web Services) |
+    38→    38→
+    39→    39→---
+    40→    40→
+    41→    41→## 3. ESTRUCTURA DE CARPETAS
+    42→    42→
+    43→    43→```text
+    44→    44→/ (Raíz)
+    45→    45→├── /backend-express/
+    46→    46→│   ├── /src/
+    47→    47→│   │   ├── /websockets/
+    48→    48→│   │   │   ├── twilioStream.handler.ts
+    49→    49→│   │   │   └── gemini.handler.ts
+    50→    50→│   │   ├── /sse/
+    51→    51→│   │   │   └── events.emitter.ts
+    52→    52→│   │   ├── /services/
+    53→    53→│   │   │   ├── audio.service.ts          (Transcodificación, ensamblado, subida R2)
+    54→    54→│   │   │   ├── billing.service.ts        (Débito por minuto/segundo, verificación saldo)
+    55→    55→│   │   │   ├── calendar.service.ts       (CRUD citas, validación overlap)
+    56→    56→│   │   │   ├── rag.service.ts            (Embeddings + búsqueda pgvector)
+    57→    57→│   │   │   ├── cache.service.ts          (Redis: contexto negocio, invalidación)
+    58→    58→│   │   │   ├── email.service.ts          (Nodemailer: confirmaciones, alertas)
+    59→    59→│   │   │   └── monitoring.service.ts     (Métricas CPU/RAM/latencia, alertas)
+    60→    60→│   │   ├── /routes/
+    61→    61→│   │   │   ├── webhooks.twilio.ts        (Recepción de llamadas)
+    62→    62→│   │   │   ├── webhooks.whop.ts          (Recepción de pagos)
+    63→    63→│   │   │   ├── admin.api.ts              (Endpoints del panel admin)
+    64→    64→│   │   │   └── internal.api.ts           (Endpoints que Next.js consume)
+    65→    65→│   │   ├── /middleware/
+    66→    66→│   │   │   ├── auth.middleware.ts        (JWT verification)
+    67→    67→│   │   │   ├── twilioSignature.ts        (Validación X-Twilio-Signature)
+    68→    68→│   │   │   └── rateLimiter.ts
+    69→    69→│   │   ├── /models/
+    70→    70→│   │   │   └── database.pool.ts          (pg Pool)
+    71→    71→│   │   ├── /utils/
+    72→    72→│   │   │   ├── logger.ts                 (Instancia Pino)
+    73→    73→│   │   │   ├── audioTranscoder.ts        (μ-law ↔ PCM, resampling)
+    74→    74→│   │   │   └── encryption.ts            (AES-256-GCM)
+    75→    75→│   │   └── index.ts
+    76→    76→│   └── package.json
+    77→    77→│
+    78→    78→├── /frontend-next/
+    79→    79→│   ├── /src/
+    80→    80→│   │   ├── /app/
+    81→    81→│   │   │   ├── /(desktop)/
+    82→    82→│   │   │   │   ├── /dashboard/
+    83→    83→│   │   │   │   ├── /configuracion/
+    84→    84→│   │   │   │   │   ├── /perfil/
+    85→    85→│   │   │   │   │   ├── /contexto/       (Simulador de voz)
+    86→    86→│   │   │   │   │   ├── /numeros/
+    87→    87→│   │   │   │   │   ├── /horarios/       (Horarios de atención + timezone)
+    88→    88→│   │   │   │   │   └── /grabaciones/
+    89→    89→│   │   │   │   ├── /citas/
+    90→    90→│   │   │   │   ├── /recargas/           (Comprar saldo vía Whop)
+    91→    91→│   │   │   │   └── /admin/              (Panel administrativo)
+    92→    92→│   │   │   │       ├── /clientes/
+    93→    93→│   │   │   │       ├── /tarifas/
+    94→    94→│   │   │   │       ├── /metricas/
+    95→    95→│   │   │   │       ├── /flujo-caja/
+    96→    96→│   │   │   │       └── /configuracion/
+    97→    97→│   │   │   ├── /(movil)/
+    98→    98→│   │   │   │   ├── /mobile-dashboard/
+    99→    99→│   │   │   │   └── /mobile-configuracion/
+   100→   100→│   │   │   │       └── /simulador/
+   101→   101→│   │   │   ├── /api/
+   102→   102→│   │   │   │   ├── /auth/
+   103→   103→│   │   │   │   ├── /users/
+   104→   104→│   │   │   │   ├── /twilio-proxy/
+   105→   105→│   │   │   │   └── /whop/               (Webhook de Whop)
+   106→   106→│   │   │   └── layout.tsx
+   107→   107→│   │   ├── /components/
+   108→   108→│   │   │   ├── /ui/
+   109→   109→│   │   │   ├── /calendar/
+   110→   110→│   │   │   ├── /voice/
+   111→   111→│   │   │   │   └── MicButton.tsx
+   112→   112→│   │   │   ├── /admin/
+   113→   113→│   │   │   │   ├── MetricsPanel.tsx
+   114→   114→│   │   │   │   ├── CashFlowChart.tsx
+   115→   115→│   │   │   │   └── ClientRanking.tsx
+   116→   116→│   │   │   └── /billing/
+   117→   117→│   │   │       ├── WalletBalance.tsx
+   118→   118→│   │   │       └── RechargeModal.tsx
+   119→   119→│   │   └── /lib/
+   120→   120→│   │       ├── /hooks/
+   121→   121→│   │       │   ├── useSSE.ts
+   122→   122→│   │       │   └── useWallet.ts
+   123→   123→│   │       └── /utils/
+   124→   124→│   │           └── validators.ts
+   125→   125→│   └── package.json
+   126→   126→│
+   127→   127→├── /docker-compose.yml  (Postgres + Redis para dev local)
+   128→   128→└── /render.yaml         (Config de despliegue en Render)
+   129→   129→```
+   130→   130→
+   131→   131→**Regla**: Máximo 600 líneas por archivo. Si excede, crear sub-módulo.
+   132→   132→
+   133→   133→---
+   134→   134→
+   135→   135→## 4. MODELOS DE BASE DE DATOS (PostgreSQL + pgvector)
+   136→   136→
+   137→   137→```sql
+   138→   138→CREATE EXTENSION IF NOT EXISTS vector;
+   139→   139→CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+   140→   140→
+   141→   141→-- ═══════════════════════════════════════════
+   142→   142→-- 1. USUARIOS (Clientes del SaaS)
+   143→   143→-- ═══════════════════════════════════════════
+   144→   144→CREATE TABLE users (
+   145→   145→    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   146→   146→    email VARCHAR(255) UNIQUE NOT NULL,
+   147→   147→    password_hash TEXT NOT NULL,
+   148→   148→    role VARCHAR(20) DEFAULT 'cliente', -- 'cliente' | 'admin'
+   149→   149→    is_verified BOOLEAN DEFAULT FALSE,
+   150→   150→    verification_token TEXT,
+   151→   151→    recovery_token TEXT,
+   152→   152→    is_suspended BOOLEAN DEFAULT FALSE,
+   153→   153→    created_at TIMESTAMP DEFAULT NOW(),
+   154→   154→    -- Perfil del negocio
+   155→   155→    business_name VARCHAR(255),
+   156→   156→    business_phone VARCHAR(50),
+   157→   157→    -- Credenciales Twilio (encriptadas AES-256-GCM)
+   158→   158→    twilio_subaccount_sid VARCHAR(100),
+   159→   159→    twilio_subaccount_auth_token_encrypted TEXT
+   160→   160→);
+   161→   161→
+   162→   162→-- ═══════════════════════════════════════════
+   163→   163→-- 2. CONFIGURACIÓN DEL NEGOCIO
+   164→   164→-- ═══════════════════════════════════════════
+   165→   165→CREATE TABLE business_settings (
+   166→   166→    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+   167→   167→    -- Idioma en que la IA habla con el cliente final
+   168→   168→    ai_language VARCHAR(10) DEFAULT 'es', -- 'es','en','pt','fr', etc.
+   169→   169→    -- Modo de citas
+   170→   170→    booking_mode VARCHAR(10) DEFAULT 'hours', -- 'hours' | 'nights'
+   171→   171→    default_duration_minutes INT DEFAULT 30,
+   172→   172→    check_in_time TIME DEFAULT '15:00:00',
+   173→   173→    check_out_time TIME DEFAULT '11:00:00',
+   174→   174→    -- Horarios de atención (JSON por día)
+   175→   175→    business_hours JSONB DEFAULT '{
+   176→   176→        "lunes": {"abierto": true, "inicio": "09:00", "fin": "18:00"},
+   177→   177→        "martes": {"abierto": true, "inicio": "09:00", "fin": "18:00"},
+   178→   178→        "miercoles": {"abierto": true, "inicio": "09:00", "fin": "18:00"},
+   179→   179→        "jueves": {"abierto": true, "inicio": "09:00", "fin": "18:00"},
+   180→   180→        "viernes": {"abierto": true, "inicio": "09:00", "fin": "18:00"},
+   181→   181→        "sabado": {"abierto": true, "inicio": "09:00", "fin": "14:00"},
+   182→   182→        "domingo": {"abierto": false, "inicio": null, "fin": null}
+   183→   183→    }'::jsonb,
+   184→   184→    -- Modo 24/7: si true, la IA contesta siempre (fuera de horario informa pero no agenda)
+   185→   185→    -- si false, fuera de horario no se contesta
+   186→   186→    modo_24_7 BOOLEAN DEFAULT FALSE,
+   187→   187→    -- Zona horaria del negocio (IANA)
+   188→   188→    timezone VARCHAR(50) DEFAULT 'America/Mexico_City',
+   189→   189→    -- Grabación de llamadas
+   190→   190→    grabacion_activa BOOLEAN DEFAULT FALSE,
+   191→   191→    mensaje_consentimiento TEXT DEFAULT 'Esta llamada puede ser grabada para fines de calidad.',
+   192→   192→    consentimiento_activo BOOLEAN DEFAULT FALSE,
+   193→   193→    -- Formulario dinámico
+   194→   194→    form_fields JSONB DEFAULT '[
+   195→   195→        {"key": "nombre", "label": "Nombre completo", "type": "text", "required": true},
+   196→   196→        {"key": "telefono", "label": "Teléfono", "type": "tel", "required": false},
+   197→   197→        {"key": "email", "label": "Correo electrónico", "type": "email", "required": false},
+   198→   198→        {"key": "notas", "label": "Notas adicionales", "type": "textarea", "required": false}
+   199→   199→    ]'::jsonb,
+   200→   200→    -- Prompt del sistema
+   201→   201→    system_prompt_context TEXT DEFAULT 'Eres un asistente amable que agenda citas...',
+   202→   202→    -- Recursos del negocio (barbería: sillas, clínica: doctores, hotel: habitaciones)
+   203→   203→    recursos JSONB DEFAULT '[]'::jsonb,
+   204→   204→    updated_at TIMESTAMP DEFAULT NOW()
+   205→   205→);
+   206→   206→
+   207→   207→-- ═══════════════════════════════════════════
+   208→   208→-- 3. WALLET / BILLING (Ledger)
+   209→   209→-- ═══════════════════════════════════════════
+   210→   210→CREATE TABLE wallet (
+   211→   211→    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+   212→   212→    saldo DECIMAL(10,4) DEFAULT 0.0000, -- Saldo actual (puede ser negativo)
+   213→   213→    moneda VARCHAR(3) DEFAULT 'USD',
+   214→   214→    updated_at TIMESTAMP DEFAULT NOW()
+   215→   215→);
+   216→   216→
+   217→   217→CREATE TABLE wallet_transactions (
+   218→   218→    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   219→   219→    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+   220→   220→    tipo VARCHAR(20) NOT NULL, -- 'recarga' | 'debito' | 'ajuste_admin' | 'trial'
+   221→   221→    monto DECIMAL(10,4) NOT NULL, -- Positivo = crédito, Negativo = débito
+   222→   222→    saldo_anterior DECIMAL(10,4) NOT NULL,
+   223→   223→    saldo_nuevo DECIMAL(10,4) NOT NULL,
+   224→   224→    -- Referencia externa
+   225→   225→    whop_payment_id VARCHAR(100), -- Si es recarga por Whop
+   226→   226→    call_sid VARCHAR(100), -- Si es débito por llamada
+   227→   227→    descripcion TEXT,
+   228→   228→    created_at TIMESTAMP DEFAULT NOW()
+   229→   229→);
+   230→   230→
+   231→   231→CREATE TABLE recharge_packages (
+   232→   232→    id SERIAL PRIMARY KEY,
+   233→   233→    nombre VARCHAR(100) NOT NULL, -- "Paquete Básico", "Paquete Pro"
+   234→   234→    monto_recarga DECIMAL(10,2) NOT NULL, -- Cuánto paga el cliente
+   235→   235→    saldo_otorgado DECIMAL(10,2) NOT NULL, -- Cuánto saldo recibe
+   236→   236→    precio_por_minuto DECIMAL(10,4) NOT NULL, -- Tarifa aplicable
+   237→   237→    precio_por_segundo DECIMAL(10,6), -- Calculado: precio_minuto / 60
+   238→   238→    activo BOOLEAN DEFAULT TRUE,
+   239→   239→    created_at TIMESTAMP DEFAULT NOW()
+   240→   240→);
+   241→   241→
+   242→   242→-- ═══════════════════════════════════════════
+   243→   243→-- 4. CONFIGURACIÓN GLOBAL DEL ADMIN
+   244→   244→-- ═══════════════════════════════════════════
+   245→   245→CREATE TABLE admin_config (
+   246→   246→    id SERIAL PRIMARY KEY,
+   247→   247→    clave VARCHAR(100) UNIQUE NOT NULL,
+   248→   248→    valor TEXT NOT NULL,
+   249→   249→    descripcion TEXT,
+   250→   250→    updated_at TIMESTAMP DEFAULT NOW()
+   251→   251→);
+   252→   252→
+   253→   253→-- Valores iniciales
+   254→   254→INSERT INTO admin_config (clave, valor, descripcion) VALUES
+   255→   255→('saldo_trial', '5.00', 'Saldo de regalo para nuevos usuarios (USD)'),
+   256→   256→('limite_saldo_negativo', '-5.00', 'Límite de saldo negativo antes de bloquear llamadas'),
+   257→   257→('cobro_por_segundo', 'false', 'true = cobrar por segundo, false = cobrar por minuto completo'),
+   258→   258→('precio_minuto_default', '0.50', 'Precio por minuto si no hay paquete asignado'),
+   259→   259→('mensaje_mantenimiento', '', 'Mensaje global de mantenimiento (vacío = desactivado)'),
+   260→   260→('alerta_cpu_porcentaje', '85', 'Umbral de CPU para alerta al admin'),
+   261→   261→('alerta_ram_porcentaje', '90', 'Umbral de RAM para alerta al admin'),
+   262→   262→('alerta_latencia_ms', '600', 'Umbral de latencia de audio para alerta'),
+   263→   263→('email_admin_alertas', 'admin@midominio.com', 'Email del admin para recibir alertas');
+   264→   264→
+   265→   265→-- ═══════════════════════════════════════════
+   266→   266→-- 5. MEMORIA / RAG
+   267→   267→-- ═══════════════════════════════════════════
+   268→   268→CREATE TABLE business_memory (
+   269→   269→    id SERIAL PRIMARY KEY,
+   270→   270→    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+   271→   271→    raw_context TEXT,
+   272→   272→    embedding vector(768), -- gemini-embedding-001, 768 dims
+   273→   273→    status VARCHAR(20) DEFAULT 'activo', -- 'borrador' | 'activo' | 'archivado'
+   274→   274→    version INT DEFAULT 1,
+   275→   275→    created_at TIMESTAMP DEFAULT NOW()
+   276→   276→);
+   277→   277→
+   278→   278→-- ═══════════════════════════════════════════
+   279→   279→-- 6. NÚMEROS TELEFÓNICOS
+   280→   280→-- ═══════════════════════════════════════════
+   281→   281→CREATE TABLE phone_numbers (
+   282→   282→    id SERIAL PRIMARY KEY,
+   283→   283→    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+   284→   284→    twilio_phone_sid VARCHAR(100),
+   285→   285→    phone_number VARCHAR(20) UNIQUE NOT NULL,
+   286→   286→    country_code VARCHAR(5) DEFAULT '+1', -- País del número
+   287→   287→    is_active BOOLEAN DEFAULT TRUE,
+   288→   288→    purchased_at TIMESTAMP DEFAULT NOW()
+   289→   289→);
+   290→   290→
+   291→   291→-- ═══════════════════════════════════════════
+   292→   292→-- 7. CITAS (Universal: horas, noches, recursos)
+   293→   293→-- ═══════════════════════════════════════════
+   294→   294→CREATE TABLE appointments (
+   295→   295→    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+   296→   296→    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+   297→   297→    phone_number_id INT REFERENCES phone_numbers(id),
+   298→   298→    -- Datos del cliente final
+   299→   299→    customer_name VARCHAR(255) NOT NULL,
+   300→   300→    customer_phone VARCHAR(50),
+   301→   301→    customer_email VARCHAR(255),
+   302→   302→    extra_fields JSONB,
+   303→   303→    -- Fechas (siempre en UTC internamente)
+   304→   304→    start_time TIMESTAMP WITH TIME ZONE NOT NULL,
+   305→   305→    end_time TIMESTAMP WITH TIME ZONE,
+   306→   306→    duration_minutes INT,
+   307→   307→    -- Recurso asignado (silla, doctor, habitación, etc.)
+   308→   308→    recurso_id VARCHAR(100),
+   309→   309→    -- Estado
+   310→   310→    status VARCHAR(20) DEFAULT 'agendado', -- 'agendado'|'asistio'|'no_asistio'|'cancelado'
+   311→   311→    notes TEXT,
+   312→   312→    created_at TIMESTAMP DEFAULT NOW(),
+   313→   313→    updated_at TIMESTAMP DEFAULT NOW()
+   314→   314→);
+   315→   315→
+   316→   316→-- ═══════════════════════════════════════════
+   317→   317→-- 8. GRABACIONES
+   318→   318→-- ═══════════════════════════════════════════
+   319→   319→CREATE TABLE call_recordings (
+   320→   320→    id SERIAL PRIMARY KEY,
+   321→   321→    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+   322→   322→    appointment_id UUID REFERENCES appointments(id) ON DELETE SET NULL,
+   323→   323→    twilio_call_sid VARCHAR(100),
+   324→   324→    twilio_stream_sid VARCHAR(100),
+   325→   325→    r2_file_url TEXT NOT NULL,
+   326→   326→    duration_seconds INT,
+   327→   327→    created_at TIMESTAMP DEFAULT NOW()
+   328→   328→);
+   329→   329→
+   330→   330→-- ═══════════════════════════════════════════
+   331→   331→-- 9. MÉTRICAS DE LLAMADAS (para monitoreo)
+   332→   332→-- ═══════════════════════════════════════════
+   333→   333→CREATE TABLE call_metrics (
+   334→   334→    id SERIAL PRIMARY KEY,
+   335→   335→    call_sid VARCHAR(100),
+   336→   336→    user_id UUID REFERENCES users(id),
+   337→   337→    inicio TIMESTAMP,
+   338→   338→    fin TIMESTAMP,
+   339→   339→    duracion_segundos INT,
+   340→   340→    latencia_promedio_ms INT, -- Latencia promedio de respuesta de Gemini
+   341→   341→    latencia_max_ms INT,
+   342→   342→    cobro_aplicado DECIMAL(10,4),
+   343→   343→    error_code VARCHAR(20), -- Si hubo error de Twilio
+   344→   344→    created_at TIMESTAMP DEFAULT NOW()
+   345→   345→);
+   346→   346→
+   347→   347→-- Índices
+   348→   348→CREATE INDEX idx_appointments_user_start ON appointments(user_id, start_time);
+   349→   349→CREATE INDEX idx_appointments_recurso ON appointments(user_id, recurso_id, start_time);
+   350→   350→CREATE INDEX idx_phone_numbers_user ON phone_numbers(user_id);
+   351→   351→CREATE INDEX idx_memory_user ON business_memory(user_id) WHERE status = 'activo';
+   352→   352→CREATE INDEX idx_wallet_tx_user ON wallet_transactions(user_id, created_at DESC);
+   353→   353→CREATE INDEX idx_call_metrics_user ON call_metrics(user_id, created_at DESC);
+   354→   354→CREATE INDEX idx_memory_embedding ON business_memory USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
+   355→   355→```
+   356→   356→
+   357→   357→---
+   358→   358→
+   359→   359→## 5. SISTEMA DE BILLING (Whop + Wallet)
+   360→   360→
+   361→   361→### 5.1 Flujo de Recarga
+   362→   362→
+   363→   363→1. El cliente va a `/recargas` en su dashboard.
+   364→   364→2. Ve los paquetes configurados por el admin (tabla `recharge_packages`).
+   365→   365→3. Selecciona un paquete → se genera un **checkout link de Whop** con `metadata: { user_id, package_id }`.
+   366→   366→4. El cliente paga en Whop.
+   367→   367→5. Whop envía webhook `payment.succeeded` a `POST /api/whop/webhook`.
+   368→   368→
+   369→   369→### 5.2 Webhook de Whop (Next.js API Route)
+   370→   370→
+   371→   371→```typescript
+   372→   372→// /frontend-next/src/app/api/whop/webhook/route.ts
+   373→   373→import { Whop } from '@whop/sdk';
+   374→   374→
+   375→   375→const whopsdk = new Whop({
+   376→   376→    apiKey: process.env.WHOP_API_KEY!,
+   377→   377→    webhookKey: btoa(process.env.WHOP_WEBHOOK_SECRET || ''),
+   378→   378→});
+   379→   379→
+   380→   380→export async function POST(request: Request): Promise<Response> {
+   381→   381→    const body = await request.text();
+   382→   382→    const headers = Object.fromEntries(request.headers);
+   383→   383→    
+   384→   384→    // Verifica firma automáticamente. Lanza excepción si es inválida.
+   385→   385→    const evento = whopsdk.webhooks.unwrap(body, { headers });
+   386→   386→    
+   387→   387→    if (evento.type === 'payment.succeeded') {
+   388→   388→        const { id, amount_after_fees, metadata } = evento.data;
+   389→   389→        const userId = metadata.user_id;
+   390→   390→        const packageId = metadata.package_id;
+   391→   391→        
+   392→   392→        // Acreditar saldo en wallet + registrar transacción
+   393→   393→        await acreditarSaldo(userId, packageId, id, amount_after_fees);
+   394→   394→    }
+   395→   395→    
+   396→   396→    if (evento.type === 'refund.created') {
+   397→   397→        // Descontar saldo si hay reembolso
+   398→   398→        await reversarSaldo(evento.data);
+   399→   399→    }
+   400→   400→    
+   401→   401→    return new Response('OK', { status: 200 });
+   402→   402→}
+   403→   403→```
+   404→   404→
+   405→   405→### 5.3 Lógica de Débito (Express - billing.service.ts)
+   406→   406→
+   407→   407→```typescript
+   408→   408→// Al INICIAR la llamada (evento 'start' de Twilio):
+   409→   409→async function verificarSaldo(userId: string): Promise<boolean> {
+   410→   410→    const { saldo } = await getWallet(userId);
+   411→   411→    const limiteNegativo = await getConfig('limite_saldo_negativo'); // ej: -5.00
+   412→   412→    
+   413→   413→    if (saldo <= parseFloat(limiteNegativo)) {
+   414→   414→        return false; // Rechazar llamada
+   415→   415→    }
+   416→   416→    return true; // Permitir (incluso con saldo negativo hasta el límite)
+   417→   417→}
+   418→   418→
+   419→   419→// DURANTE la llamada (cada 60 segundos o al finalizar):
+   420→   420→async function debitarLlamada(userId: string, callSid: string, duracionSegundos: number) {
+   421→   421→    const cobroPorSegundo = await getConfig('cobro_por_segundo') === 'true';
+   422→   422→    const precioMinuto = await getPrecioMinuto(userId);
+   423→   423→    
+   424→   424→    let monto: number;
+   425→   425→    if (cobroPorSegundo) {
+   426→   426→        const precioSegundo = precioMinuto / 60;
+   427→   427→        monto = precioSegundo * duracionSegundos;
+   428→   428→    } else {
+   429→   429→        const minutos = Math.ceil(duracionSegundos / 60); // Redondea hacia arriba
+   430→   430→        monto = precioMinuto * minutos;
+   431→   431→    }
+   432→   432→    
+   433→   433→    // Registrar débito en wallet_transactions
+   434→   434→    await registrarTransaccion(userId, 'debito', -monto, callSid, `Llamada ${callSid}`);
+   435→   435→}
+   436→   436→```
+   437→   437→
+   438→   438→### 5.4 Notificaciones de Saldo Bajo
+   439→   439→
+   440→   440→- Al **50%** del saldo inicial de la última recarga → notificación in-app.
+   441→   441→- Al **20%** → notificación in-app + email.
+   442→   442→- Al **5%** → notificación in-app + email urgente.
+   443→   443→- Al llegar a **$0.00** → email: "Tu saldo se agotó. Recarga para seguir recibiendo llamadas."
+   444→   444→- Las notificaciones se emiten vía SSE al frontend + Nodemailer.
+   445→   445→
+   446→   446→### 5.5 Cuando el saldo llega al límite negativo
+   447→   447→
+   448→   448→- La llamada **actual** termina normalmente (no se corta a mitad).
+   449→   449→- Las **siguientes** llamadas reciben un TwiML con `<Say>`: *"Lo sentimos, este servicio no está disponible temporalmente."* y se cuelga.
+   450→   450→- El número sigue activo pero no procesa IA.
+   451→   451→
+   452→   452→---
+   453→   453→
+   454→   454→## 6. PANEL ADMINISTRATIVO
+   455→   455→
+   456→   456→### 6.1 Rutas del Admin (solo `role = 'admin'`)
+   457→   457→
+   458→   458→| Ruta | Función |
+   459→   459→|------|---------|
+   460→   460→| `/admin/clientes` | Lista de todos los usuarios. Suspender/activar/eliminar. Ver saldo y consumo de cada uno. |
+   461→   461→| `/admin/tarifas` | CRUD de `recharge_packages`. Configurar precio/minuto, cobro por segundo ON/OFF, límite saldo negativo, saldo trial. |
+   462→   462→| `/admin/metricas` | Dashboard en tiempo real: CPU, RAM, llamadas activas, latencia promedio, rate limits de APIs (Gemini, Twilio). Gráficos con `recharts`. |
+   463→   463→| `/admin/flujo-caja` | Ingresos por Whop, débitos totales, balance general. Filtro por fecha. Exportar CSV. |
+   464→   464→| `/admin/ranking` | Ranking de clientes por consumo (minutos, dinero). Top 10. |
+   465→   465→| `/admin/configuracion` | Mensaje de mantenimiento global. Email de alertas. Umbrales de alertas. |
+   466→   466→
+   467→   467→### 6.2 Alertas al Admin
+   468→   468→
+   469→   469→El `monitoring.service.ts` corre un intervalo cada **10 segundos** que verifica:
+   470→   470→
+   471→   471→```typescript
+   472→   472→const metricas = {
+   473→   473→    cpu: os.loadavg()[0] / os.cpus().length * 100,
+   474→   474→    ram: (1 - os.freemem() / os.totalmem()) * 100,
+   475→   475→    llamadasActivas: contadorWebSocketsActivos(),
+   476→   476→    latenciaUltima: ultimaLatenciaGemini,
+   477→   477→};
+   478→   478→
+   479→   479→if (metricas.cpu > umbralCPU || metricas.ram > umbralRAM || metricas.latencia > umbralLatencia) {
+   480→   480→    await enviarEmailAdmin(`⚠️ Alerta: CPU ${metricas.cpu}% | RAM ${metricas.ram}% | Latencia ${metricas.latencia}ms`);
+   481→   481→    await emitirSSEAdmin('alerta_sistema', metricas);
+   482→   482→}
+   483→   483→```
+   484→   484→
+   485→   485→### 6.3 Rate Limits de APIs (Visibilidad)
+   486→   486→
+   487→   487→El panel de métricas muestra:
+   488→   488→- **Gemini API**: Requests restantes del día (leer de headers `x-ratelimit-remaining-requests`).
+   489→   489→- **Twilio API**: Límite de concurrencia de llamadas (configurado en cuenta Twilio).
+   490→   490→- **Whop**: Estado del webhook (último evento recibido, errores).
+   491→   491→
+   492→   492→---
+   493→   493→
+   494→   494→## 7. FLUJO DE VOZ (Express + Twilio + Gemini)
+   495→   495→
+   496→   496→### 7.1 Webhook de Entrada
+   497→   497→
+   498→   498→Cuando Twilio recibe una llamada en el número del cliente:
+   499→   499→
+   500→   500→```typescript
+   501→   501→// webhooks.twilio.ts
+   502→   502→app.post('/webhooks/twilio/voice', validarFirmaTwilio, async (req, res) => {
+   503→   503→    const { CallSid, From, To } = req.body;
+   504→   504→    const userId = await obtenerUsuarioPorNumero(To);
+   505→   505→    
+   506→   506→    // 1. Verificar mantenimiento global
+   507→   507→    const mantenimiento = await getConfig('mensaje_mantenimiento');
+   508→   508→    if (mantenimiento) {
+   509→   509→        return res.type('text/xml').send(`<Response><Say language="es">${mantenimiento}</Say><Hangup/></Response>`);
+   510→   510→    }
+   511→   511→    
+   512→   512→    // 2. Verificar saldo
+   513→   513→    const saldoOk = await verificarSaldo(userId);
+   514→   514→    if (!saldoOk) {
+   515→   515→        return res.type('text/xml').send(`<Response><Say language="es">Lo sentimos, este servicio no está disponible temporalmente.</Say><Hangup/></Response>`);
+   516→   516→    }
+   517→   517→    
+   518→   518→    // 3. Verificar horario de atención
+   519→   519→    const settings = await getBusinessSettings(userId); // Desde Redis cache
+   520→   520→    const dentroDeHorario = verificarHorario(settings);
+   521→   521→    
+   522→   522→    if (!dentroDeHorario && !settings.modo_24_7) {
+   523→   523→        return res.type('text/xml').send(`<Response><Say language="${settings.ai_language}">Gracias por llamar. Nuestro horario de atención es de...</Say><Hangup/></Response>`);
+   524→   524→    }
+   525→   525→    
+   526→   526→    // 4. Conectar stream bidireccional
+   527→   527→    const wsUrl = `wss://${process.env.DOMINIO_EXPRESS}/stream/twilio?user_id=${userId}&call_sid=${CallSid}`;
+   528→   528→    res.type('text/xml').send(`
+   529→   529→        <Response>
+   530→   530→            ${settings.consentimiento_activo ? `<Say language="${settings.ai_language}">${settings.mensaje_consentimiento}</Say>` : ''}
+   531→   531→            <Connect>
+   532→   532→                <Stream url="${wsUrl}" />
+   533→   533→            </Connect>
+   534→   534→        </Response>
+   535→   535→    `);
+   536→   536→});
+   537→   537→```
+   538→   538→
+   539→   539→### 7.2 WebSocket de Twilio → Gemini (Pipeline de Audio)
+   540→   540→
+   541→   541→**Eventos de Twilio entrantes**: `start`, `media`, `stop`.
+   542→   542→
+   543→   543→**Transcodificación Twilio → Gemini**:
+   544→   544→```
+   545→   545→Twilio envía: G.711 μ-law, 8kHz, mono, Base64
+   546→   546→     ↓ decodificar Base64
+   547→   547→     ↓ μ-law → PCM lineal 16-bit (usar paquete 'g711')
+   548→   548→     ↓ resamplear 8kHz → 16kHz (usar fluent-ffmpeg o interpolación lineal)
+   549→   549→Gemini espera: PCM 16-bit, 16kHz, Little-Endian
+   550→   550→```
+   551→   551→
+   552→   552→**Transcodificación Gemini → Twilio**:
+   553→   553→```
+   554→   554→Gemini envía: PCM 16-bit, 24kHz, Little-Endian, Base64
+   555→   555→     ↓ decodificar Base64
+   556→   556→     ↓ resamplear 24kHz → 8kHz
+   557→   557→     ↓ PCM lineal → μ-law (usar paquete 'g711')
+   558→   558→     ↓ codificar Base64
+   559→   559→Twilio espera: G.711 μ-law, 8kHz, Base64
+   560→   560→```
+   561→   561→
+   562→   562→### 7.3 Conexión con Gemini Live
+   563→   563→
+   564→   564→```typescript
+   565→   565→import { GoogleGenAI, Modality } from '@google/genai';
+   566→   566→
+   567→   567→const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+   568→   568→
+   569→   569→async function crearSesionGemini(userId: string, streamSid: string) {
+   570→   570→    // Obtener contexto del negocio (Redis → fallback Postgres → RAG)
+   571→   571→    const contexto = await obtenerContextoNegocio(userId);
+   572→   572→    const settings = await getBusinessSettings(userId);
+   573→   573→    
+   574→   574→    const systemPrompt = construirSystemPrompt(contexto, settings);
+   575→   575→    
+   576→   576→    const session = await ai.live.connect({
+   577→   577→        model: 'gemini-3.1-flash-live-preview',
+   578→   578→        config: {
+   579→   579→            responseModalities: [Modality.AUDIO],
+   580→   580→            systemInstruction: { parts: [{ text: systemPrompt }] },
+   581→   581→            tools: obtenerHerramientas(settings),
+   582→   582→            thinkingConfig: { thinkingLevel: 'MINIMAL' }
+   583→   583→        }
+   584→   584→    });
+   585→   585→    
+   586→   586→    return session;
+   587→   587→}
+   588→   588→```
+   589→   589→
+   590→   590→### 7.4 System Prompt Dinámico (Inyectado al inicio)
+   591→   591→
+   592→   592→```typescript
+   593→   593→function construirSystemPrompt(contexto: string, settings: BusinessSettings): string {
+   594→   594→    const idiomaInstruccion = obtenerInstruccionIdioma(settings.ai_language);
+   595→   595→    const horarioTexto = formatearHorario(settings.business_hours, settings.timezone);
+   596→   596→    const modoCita = settings.booking_mode === 'hours' 
+   597→   597→        ? `Las citas son por franjas horarias de ${settings.default_duration_minutes} minutos.`
+   598→   598→        : `Las citas son por noches. Check-in: ${settings.check_in_time}, Check-out: ${settings.check_out_time}.`;
+   599→   599→    
+   600→   600→    return `
+   601→   601→${idiomaInstruccion}
+   602→   602→
+   603→   603→## CONTEXTO DEL NEGOCIO
+   604→   604→${contexto}
+   605→   605→
+   606→   606→## REGLAS DE AGENDAMIENTO
+   607→   607→- Modo: ${modoCita}
+   608→   608→- Horario de atención: ${horarioTexto}
+   609→   609→- Zona horaria: ${settings.timezone}
+   610→   610→- ${settings.modo_24_7 ? 'Fuera de horario: informa el horario pero NO agendes. Ofrece tomar un mensaje.' : ''}
+   611→   611→
+   612→   612→## FORMULARIO DE DATOS
+   613→   613→Debes recopilar: ${JSON.stringify(settings.form_fields)}
+   614→   614→
+   615→   615→## RECURSOS DISPONIBLES
+   616→   616→${settings.recursos.length > 0 ? JSON.stringify(settings.recursos) : 'No hay recursos específicos. Agenda por tiempo.'}
+   617→   617→
+   618→   618→## INSTRUCCIONES
+   619→   619→- Sé amable, profesional y conciso.
+   620→   620→- Antes de agendar, SIEMPRE consulta disponibilidad con la herramienta.
+   621→   621→- Confirma los datos con el cliente antes de guardar.
+   622→   622→- Si el cliente quiere cancelar, usa la herramienta de cancelación.
+   623→   623→    `.trim();
+   624→   624→}
+   625→   625→```
+   626→   626→
+   627→   627→### 7.5 Barge-in (Interrupción)
+   628→   628→
+   629→   629→**Gemini detecta la interrupción** (VAD nativo del modelo multimodal). Cuando detecta voz del usuario mientras genera audio:
+   630→   630→1. Gemini **cancela** su generación actual internamente.
+   631→   631→2. Deja de enviar chunks de audio por el WebSocket.
+   632→   632→
+   633→   633→**Tu servidor Express debe**:
+   634→   634→1. Detectar que Gemini dejó de enviar audio (no hay nuevos `part.inlineData` por > 200ms mientras Twilio sigue mandando `media` inbound).
+   635→   635→2. Inmediatamente enviar a Twilio:
+   636→   636→```json
+   637→   637→{ "event": "clear", "streamSid": "MZ..." }
+   638→   638→```
+   639→   639→3. Esto limpia el búfer residual de Twilio (los 1-2 segundos de audio ya encolado).
+   640→   640→
+   641→   641→**Filtro de ruido**: Para evitar que ruido ambiental dispare falsas interrupciones, implementar un umbral de energía en los chunks inbound de Twilio. Solo considerar "voz real" si la energía del frame supera un umbral configurable (ej: -40dBFS). Usar la librería `webrtcvad` (VAD nativo) como segundo filtro si el análisis de energía no es suficiente.
+   642→   642→
+   643→   643→### 7.6 Function Calling (Síncrono y Bloqueante)
+   644→   644→
+   645→   645→**Herramientas registradas**:
+   646→   646→
+   647→   647→```typescript
+   648→   648→function obtenerHerramientas(settings: BusinessSettings) {
+   649→   649→    const herramientas = [
+   650→   650→        {
+   651→   651→            functionDeclarations: [
+   652→   652→                {
+   653→   653→                    name: "consultar_disponibilidad",
+   654→   654→                    description: "Consulta citas agendadas para una fecha. Retorna horarios ocupados y libres.",
+   655→   655→                    parameters: {
+   656→   656→                        type: "OBJECT",
+   657→   657→                        properties: {
+   658→   658→                            date: { type: "STRING", description: "Fecha YYYY-MM-DD en la zona horaria del negocio" },
+   659→   659→                            recurso_id: { type: "STRING", description: "ID del recurso (opcional)" }
+   660→   660→                        },
+   661→   661→                        required: ["date"]
+   662→   662→                    }
+   663→   663→                },
+   664→   664→                {
+   665→   665→                    name: "agendar_cita",
+   666→   666→                    description: "Agenda una nueva cita. Verifica que no haya conflicto antes de guardar.",
+   667→   667→                    parameters: {
+   668→   668→                        type: "OBJECT",
+   669→   669→                        properties: {
+   670→   670→                            customer_name: { type: "STRING" },
+   671→   671→                            customer_phone: { type: "STRING" },
+   672→   672→                            customer_email: { type: "STRING" },
+   673→   673→                            start_time: { type: "STRING", description: "ISO 8601 con timezone" },
+   674→   674→                            end_time: { type: "STRING", description: "ISO 8601 (modo noches)" },
+   675→   675→                            duration_minutes: { type: "INTEGER" },
+   676→   676→                            recurso_id: { type: "STRING" },
+   677→   677→                            notes: { type: "STRING" },
+   678→   678→                            extra_fields: { type: "OBJECT" }
+   679→   679→                        },
+   680→   680→                        required: ["customer_name", "start_time"]
+   681→   681→                    }
+   682→   682→                },
+   683→   683→                {
+   684→   684→                    name: "cancelar_cita",
+   685→   685→                    description: "Cancela una cita existente buscando por nombre o teléfono del cliente.",
+   686→   686→                    parameters: {
+   687→   687→                        type: "OBJECT",
+   688→   688→                        properties: {
+   689→   689→                            customer_name: { type: "STRING" },
+   690→   690→                            customer_phone: { type: "STRING" },
+   691→   691→                            date: { type: "STRING", description: "Fecha aproximada YYYY-MM-DD" }
+   692→   692→                        },
+   693→   693→                        required: ["customer_name"]
+   694→   694→                    }
+   695→   695→                }
+   696→   696→            ]
+   697→   697→        }
+   698→   698→    ];
+   699→   699→    
+   700→   700→    // Solo en modo simulador:
+   701→   701→    if (esSimulador) {
+   702→   702→        herramientas[0].functionDeclarations.push({
+   703→   703→            name: "guardar_contexto",
+   704→   704→            description: "Guarda el contexto del negocio. Solo usar cuando el usuario confirme que la información está completa.",
+   705→   705→            parameters: {
+   706→   706→                type: "OBJECT",
+   707→   707→                properties: {
+   708→   708→                    raw_context: { type: "STRING", description: "Resumen completo del contexto del negocio" }
+   709→   709→                },
+   710→   710→                required: ["raw_context"]
+   711→   711→            }
+   712→   712→        });
+   713→   713→    }
+   714→   714→    
+   715→   715→    return herramientas;
+   716→   716→}
+   717→   717→```
+   718→   718→
+   719→   719→**Manejo de la respuesta (SÍNCRONO)**:
+   720→   720→
+   721→   721→```typescript
+   722→   722→for await (const message of session.receive()) {
+   723→   723→    const parts = message.serverContent?.modelTurn?.parts;
+   724→   724→    if (!parts) continue;
+   725→   725→    
+   726→   726→    for (const part of parts) {
+   727→   727→        // Audio de respuesta
+   728→   728→        if (part.inlineData?.mimeType?.startsWith('audio/')) {
+   729→   729→            const pcm24k = Buffer.from(part.inlineData.data, 'base64');
+   730→   730→            const mulaw8k = transcodificarGeminiATwilio(pcm24k);
+   731→   731→            enviarATwilio(streamSid, mulaw8k);
+   732→   732→            registrarLatencia();
+   733→   733→        }
+   734→   734→        
+   735→   735→        // Transcripción
+   736→   736→        if (part.text) {
+   737→   737→            emitirSSE(userId, 'transcripcion', part.text);
+   738→   738→        }
+   739→   739→        
+   740→   740→        // Function Call
+   741→   741→        if (part.functionCall) {
+   742→   742→            const { name, args } = part.functionCall;
+   743→   743→            const resultado = await ejecutarHerramienta(name, args, userId);
+   744→   744→            
+   745→   745→            // RESPONDER A GEMINI (bloqueante - el modelo espera esto)
+   746→   746→            await session.sendRealtimeInput({
+   747→   747→                functionResponses: [{
+   748→   748→                    name: name,
+   749→   749→                    response: { result: resultado }
+   750→   750→                }]
+   751→   751→            });
+   752→   752→        }
+   753→   753→    }
+   754→   754→    
+   755→   755→    // Turno completo
+   756→   756→    if (message.serverContent?.turnComplete) {
+   757→   757→        logger.info({ callSid }, 'Turno de Gemini completado');
+   758→   758→    }
+   759→   759→}
+   760→   760→```
+   761→   761→
+   762→   762→### 7.7 Grabación de Llamadas (Opcional)
+   763→   763→
+   764→   764→Si `settings.grabacion_activa === true`:
+   765→   765→
+   766→   766→- Express acumula todos los chunks inbound (voz del cliente) y outbound (voz de la IA) en dos buffers separados durante la llamada.
+   767→   767→- Al evento `stop` de Twilio:
+   768→   768→  1. Ensamblar ambos buffers en un WAV estéreo (canal izq = cliente, canal der = IA) usando `fluent-ffmpeg`.
+   769→   769→  2. Subir a Cloudflare R2 con `@aws-sdk/client-s3`.
+   770→   770→  3. Guardar URL en `call_recordings`.
+   771→   771→  4. Generar URL firmada (expira 1 hora) para reproducción en frontend.
+   772→   772→- **Retención**: Indefinida. El cliente elimina desde su panel cuando quiera.
+   773→   773→
+   774→   774→### 7.8 Fin de Llamada y Cobro
+   775→   775→
+   776→   776→```typescript
+   777→   777→// Evento 'stop' de Twilio
+   778→   778→async function finalizarLlamada(userId: string, callSid: string, streamSid: string) {
+   779→   779→    const inicio = registroLlamadas.get(callSid)?.inicio;
+   780→   780→    const duracionSegundos = Math.round((Date.now() - inicio) / 1000);
+   781→   781→    
+   782→   782→    // 1. Debitar
+   783→   783→    await debitarLlamada(userId, callSid, duracionSegundos);
+   784→   784→    
+   785→   785→    // 2. Grabación (si aplica)
+   786→   786→    if (grabacionActiva) await ensamblarYSubirAudio(callSid, userId);
+   787→   787→    
+   788→   788→    // 3. Métricas
+   789→   789→    await guardarMetricas(callSid, userId, duracionSegundos);
+   790→   790→    
+   791→   791→    // 4. Cerrar sesión Gemini
+   792→   792→    await session.close();
+   793→   793→    
+   794→   794→    // 5. Limpiar Redis temporal
+   795→   795→    await limpiarBuffersLlamada(callSid);
+   796→   796→    
+   797→   797→    // 6. Notificar al dueño (SSE)
+   798→   798→    emitirSSE(userId, 'llamada_finalizada', { callSid, duracionSegundos });
+   799→   799→}
+   800→   800→```
+   801→   801→
+   802→   802→---
+   803→   803→
+   804→   804→## 8. SIMULADOR DE CONTEXTO (Entrevista de Voz)
+   805→   805→
+   806→   806→### 8.1 Flujo Completo
+   807→   807→
+   808→   808→1. El cliente entra a `/configuracion/contexto` (desktop) o `/mobile-configuracion/simulador` (móvil).
+   809→   809→2. Ve un botón de micrófono. Al presionar:
+   810→   810→   - Se abre WebSocket con Express.
+   811→   811→   - Express abre sesión Gemini con `systemInstruction` de entrevistador.
+   812→   812→   - **El cliente habla primero**. La IA escucha.
+   813→   813→3. La IA tiene como objetivo: extraer toda la información del negocio (qué hace, servicios, precios, reglas, tono deseado, etc.).
+   814→   814→4. Cuando la IA considera que tiene suficiente información, pregunta: *"¿Esto sería todo? Te doy un resumen de lo que tenemos hasta ahora."*
+   815→   815→5. Si el cliente dice **"sí / está bien"** → La IA da el resumen y llama a `guardar_contexto`.
+   816→   816→6. Si el cliente dice **"no, falta más"** → La IA sigue escuchando y preguntando.
+   817→   817→7. **Timeout**: Si no se detecta intención real de conversación (silencio prolongado > 30s o respuestas sin sentido), la IA pregunta: *"¿Sigues ahí? Si necesitas más tiempo, puedes volver a iniciar la conversación."* Tras 60s más sin respuesta, se cierra gracefully.
+   818→   818→
+   819→   819→### 8.2 Edición Posterior
+   820→   820→
+   821→   821→- Después de la entrevista, el `raw_context` se muestra en un textarea editable.
+   822→   822→- El cliente puede modificarlo manualmente y guardar.
+   823→   823→- Al guardar: se re-embedda (nuevo vector 768 dims) y se actualiza en Redis cache.
+   824→   824→
+   825→   825→### 8.3 Re-entrevista
+   826→   826→
+   827→   827→- Botón "Re-entrevistar".
+   828→   828→- La IA inicia diciendo: *"Ya tengo información de tu negocio: [resumen breve]. ¿Qué partes quieres actualizar o agregar? También podemos empezar desde cero si prefieres."*
+   829→   829→- Si el cliente dice "empezar de cero" → se archiva la versión anterior (`status = 'archivado'`) y se crea nueva.
+   830→   830→- Si dice "quiero cambiar X" → la IA solo actualiza esa parte.
+   831→   831→
+   832→   832→### 8.4 Versionado
+   833→   833→
+   834→   834→- Cada guardado incrementa `version` en `business_memory`.
+   835→   835→- Las versiones anteriores quedan con `status = 'archivado'` (no se borran).
+   836→   836→
+   837→   837→---
+   838→   838→
+   839→   839→## 9. SISTEMA DE CITAS UNIVERSAL
+   840→   840→
+   841→   841→### 9.1 Flexibilidad
+   842→   842→
+   843→   843→El sistema NO asume un tipo de negocio. La tabla `appointments` + `business_settings.recursos` permite:
+   844→   844→
+   845→   845→| Negocio | Recursos | Modo | Duración |
+   846→   846→|---------|----------|------|----------|
+   847→   847→| Barbería | `["Silla 1", "Silla 2", "Silla 3"]` | hours | 30 min |
+   848→   848→| Clínica | `["Dr. García", "Dra. López"]` | hours | 45 min |
+   849→   849→| Hotel | `["Habitación 101", "Suite 201"]` | nights | check-in/out |
+   850→   850→| Spa | `["Sala Masaje 1", "Sala Facial 2"]` | hours | 60 min |
+   851→   851→| Consultoría | `[]` (sin recursos) | hours | 60 min |
+   852→   852→
+   853→   853→### 9.2 Validación de Overlap
+   854→   854→
+   855→   855→```typescript
+   856→   856→async function verificarOverlap(userId: string, startTime: Date, endTime: Date, recursoId?: string): Promise<boolean> {
+   857→   857→    let query = `
+   858→   858→        SELECT COUNT(*) FROM appointments 
+   859→   859→        WHERE user_id = $1 
+   860→   860→        AND status != 'cancelado'
+   861→   861→        AND start_time < $3 
+   862→   862→        AND end_time > $2
+   863→   863→    `;
+   864→   864→    const params: any[] = [userId, startTime, endTime];
+   865→   865→    
+   866→   866→    if (recursoId) {
+   867→   867→        query += ` AND recurso_id = $4`;
+   868→   868→        params.push(recursoId);
+   869→   869→    }
+   870→   870→    
+   871→   871→    const { rows } = await pool.query(query, params);
+   872→   872→    return parseInt(rows[0].count) > 0; // true = HAY conflicto
+   873→   873→}
+   874→   874→```
+   875→   875→
+   876→   876→### 9.3 Horarios y Zonas Horarias
+   877→   877→
+   878→   878→- Todas las fechas se guardan en **UTC** (`TIMESTAMP WITH TIME ZONE`).
+   879→   879→- La IA conoce la zona horaria del negocio (inyectada en system prompt).
+   880→   880→- Cuando la IA dice "Tu cita es a las 3 PM", se refiere a la hora local del negocio.
+   881→   881→- El frontend muestra las citas en la zona horaria del negocio (usar `date-fns-tz` o `luxon`).
+   882→   882→
+   883→   883→### 9.4 Modo 24/7 vs Horario Restringido
+   884→   884→
+   885→   885→- `modo_24_7 = true`: La IA contesta siempre. Fuera de horario: informa, ofrece tomar mensaje, pero **NO agenda**.
+   886→   886→- `modo_24_7 = false`: Fuera de horario, el webhook devuelve TwiML con `<Say>` informando horario y `<Hangup/>`. No se abre WebSocket ni sesión Gemini (ahorra costos).
+   887→   887→
+   888→   888→---
+   889→   889→
+   890→   890→## 10. CONFIRMACIÓN AL CLIENTE FINAL
+   891→   891→
+   892→   892→Después de agendar una cita:
+   893→   893→
+   894→   894→1. **Verbal** (siempre): La IA dice *"Perfecto, tu cita queda agendada para el [fecha] a las [hora]. ¿Necesitas algo más?"*
+   895→   895→2. **Email** (condicional): Solo si el campo `email` está en `form_fields` como `required: true` Y el cliente final proporcionó su correo.
+   896→   896→   - Asunto: *"Confirmación de cita - {business_name}"*
+   897→   897→   - Cuerpo: Resumen de la cita (fecha, hora, negocio, notas).
+   898→   898→   - Se envía con Nodemailer desde el backend Express.
+   899→   899→
+   900→   900→---
+   901→   901→
+   902→   902→## 11. INTERFAZ Y ESTILOS (WhatsApp Web)
+   903→   903→
+   904→   904→### 11.1 Temas
+   905→   905→
+   906→   906→- Light y Dark con variables CSS + Tailwind.
+   907→   907→- `panelClass`: `bg-white dark:bg-[#111b21] border border-slate-200 dark:border-white/[0.08] shadow-sm dark:shadow-none`
+   908→   908→- Fondo raíz: `bg-slate-50 dark:bg-[#0b141a]`
+   909→   909→- Transiciones: `transition-colors duration-200`
+   910→   910→
+   911→   911→### 11.2 Móvil (No responsive, archivos separados)
+   912→   912→
+   913→   913→- Middleware Next.js detecta `User-Agent` → redirige a `/(movil)`.
+   914→   914→- Simulador móvil: fondo con vista previa del contexto + botón redondo fijo (60px radio, `position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%)`).
+   915→   915→- Al grabar: botón cambia a estado "grabando" con ondas animadas CSS.
+   916→   916→- Texto se actualiza en tiempo real vía SSE.
+   917→   917→
+   918→   918→### 11.3 Calendario
+   919→   919→
+   920→   920→- `booking_mode = 'hours'` → `react-big-calendar` con franjas horarias.
+   921→   921→- `booking_mode = 'nights'` → `react-date-range` con selección de rango.
+   922→   922→- Estados: `agendado` (verde), `asistio` (azul), `no_asistio` (rojo), `cancelado` (gris).
+   923→   923→- Dropdown para cambiar estado desde el dashboard.
+   924→   924→
+   925→   925→### 11.4 Widget de Saldo
+   926→   926→
+   927→   927→- En el header del dashboard: `WalletBalance.tsx` muestra saldo actual con color:
+   928→   928→  - Verde: > 50% de la última recarga.
+   929→   929→  - Amarillo: 20-50%.
+   930→   930→  - Rojo: < 20%.
+   931→   931→- Click → abre `RechargeModal.tsx` con los paquetes disponibles (Whop checkout).
+   932→   932→
+   933→   933→---
+   934→   934→
+   935→   935→## 12. NOTIFICACIONES (SSE + Email)
+   936→   936→
+   937→   937→### 12.1 SSE (Tiempo real)
+   938→   938→
+   939→   939→- Endpoint Express: `GET /sse/events?user_id={uuid}&token={jwt}`
+   940→   940→- Eventos emitidos:
+   941→   941→  - `nueva_cita` → "Nueva cita agendada por {nombre}"
+   942→   942→  - `llamada_finalizada` → "Llamada de {duracion}s finalizada"
+   943→   943→  - `saldo_bajo` → "Tu saldo está por agotarse"
+   944→   944→  - `transcripcion` → Texto en vivo (solo en simulador)
+   945→   945→  - `alerta_sistema` → Solo para admin
+   946→   946→
+   947→   947→### 12.2 Emails (Nodemailer)
+   948→   948→
+   949→   949→| Evento | Destinatario | Asunto |
+   950→   950→|--------|-------------|--------|
+   951→   951→| Registro | Usuario | "Verifica tu cuenta" |
+   952→   952→| Recuperación password | Usuario | "Restablece tu contraseña" |
+   953→   953→| Cita agendada (con email) | Cliente final | "Confirmación de cita - {negocio}" |
+   954→   954→| Nueva cita | Dueño del negocio | "Tienes una nueva cita" |
+   955→   955→| Saldo bajo (20%) | Dueño del negocio | "Tu saldo está por agotarse" |
+   956→   956→| Saldo agotado | Dueño del negocio | "Saldo agotado - Recarga para seguir" |
+   957→   957→| Alerta sistema | Admin | "⚠️ Alerta de rendimiento" |
+   958→   958→
+   959→   959→---
+   960→   960→
+   961→   961→## 13. MONITOREO Y OBSERVABILIDAD
+   962→   962→
+   963→   963→### 13.1 Logging (Pino)
+   964→   964→
+   965→   965→```typescript
+   966→   966→// utils/logger.ts
+   967→   967→import pino from 'pino';
+   968→   968→
+   969→   969→export const logger = pino({
+   970→   970→    level: process.env.LOG_LEVEL || 'info',
+   971→   971→    transport: {
+   972→   972→        target: 'pino-pretty', // Solo en dev
+   973→   973→        options: { colorize: true }
+   974→   974→    },
+   975→   975→    // En producción: JSON puro a stdout (Render lo captura)
+   976→   976→});
+   977→   977→
+   978→   978→// Uso con contexto de llamada
+   979→   979→const callLogger = logger.child({ callSid, userId, streamSid });
+   980→   980→callLogger.info({ latencia: 234 }, 'Chunk de audio enviado a Twilio');
+   981→   981→```
+   982→   982→
+   983→   983→### 13.2 Métricas de Hardware (monitoring.service.ts)
+   984→   984→
+   985→   985→Cada 10 segundos:
+   986→   986→- `os.loadavg()` → CPU
+   987→   987→- `os.freemem() / os.totalmem()` → RAM
+   988→   988→- `process.memoryUsage()` → Heap de Node
+   989→   989→- Contador de WebSockets activos → Llamadas concurrentes
+   990→   990→- Último `x-ratelimit-remaining` de Gemini → Cuota restante
+   991→   991→
+   992→   992→### 13.3 Métricas de Latencia
+   993→   993→
+   994→   994→- En cada chunk de audio enviado a Twilio, registrar `Date.now() - timestampInicioTurno`.
+   995→   995→- Calcular promedio y máximo por llamada.
+   996→   996→- Guardar en `call_metrics`.
+   997→   997→- Si latencia > umbral (600ms default) → alerta SSE al admin + email.
+   998→   998→
+   999→   999→### 13.4 Endpoint de Métricas (Admin)
+  1000→  1000→
+  1001→  1001→```typescript
+  1002→  1002→// admin.api.ts
+  1003→  1003→app.get('/admin/metricas', authAdmin, (req, res) => {
+  1004→  1004→    res.json({
+  1005→  1005→        cpu: obtenerCPU(),
+  1006→  1006→        ram: obtenerRAM(),
+  1007→  1007→        heap: process.memoryUsage(),
+  1008→  1008→        llamadasActivas: contadorWS,
+  1009→  1009→        latenciaPromedio: obtenerLatenciaPromedia(),
+  1010→  1010→        geminiRateLimit: ultimoRateLimitGemini,
+  1011→  1011→        uptime: process.uptime(),
+  1012→  1012→        historial: obtenerHistorialMetricas() // Últimos 60 minutos, sampleado cada 10s
+  1013→  1013→    });
+  1014→  1014→});
+  1015→  1015→```
+  1016→  1016→
+  1017→  1017→---
+  1018→  1018→
+  1019→  1019→## 14. SEGURIDAD
+  1020→  1020→
+  1021→  1021→1. **Twilio**: Validar `X-Twilio-Signature` en cada webhook usando el `auth_token` de la subcuenta.
+  1022→  1022→2. **Whop**: Verificación automática con `whopsdk.webhooks.unwrap()` (firma HMAC).
+  1023→  1023→3. **JWT**: En todas las rutas protegidas. Expiración: 24h. Refresh token: 7 días.
+  1024→  1024→4. **Encriptación**: `twilio_subaccount_auth_token` con AES-256-GCM (`crypto.createCipheriv`).
+  1025→  1025→5. **CORS**: Express solo acepta requests del dominio del frontend.
+  1026→  1026→6. **Rate Limiting**: 100 req/min por IP en Express y Next.js.
+  1027→  1027→7. **Validación de entrada**: Zod en todos los endpoints.
+  1028→  1028→8. **SQL Injection**: Siempre queries parametrizadas (`$1, $2...`).
+  1029→  1029→9. **Admin**: Middleware que verifica `role = 'admin'` en el JWT.
+  1030→  1030→
+  1031→  1031→---
+  1032→  1032→
+  1033→  1033→## 15. DESPLIEGUE EN RENDER
+  1034→  1034→
+  1035→  1035→### 15.1 Servicios
+  1036→  1036→
+  1037→  1037→| Servicio | Tipo en Render | Comando |
+  1038→  1038→|----------|---------------|---------|
+  1039→  1039→| `frontend-next` | Static Site o Web Service | `next build && next start` |
+  1040→  1040→| `backend-express` | Web Service (con WebSocket) | `node dist/index.js` |
+  1041→  1041→| `postgres` | PostgreSQL (managed) | — |
+  1042→  1042→| `redis` | Redis (managed o Upstash) | — |
+  1043→  1043→
+  1044→  1044→### 15.2 render.yaml
+  1045→  1045→
+  1046→  1046→```yaml
+  1047→  1047→services:
+  1048→  1048→  - type: web
+  1049→  1049→    name: backend-express
+  1050→  1050→    runtime: node
+  1051→  1051→    buildCommand: cd backend-express && npm install && npm run build
+  1052→  1052→    startCommand: cd backend-express && node dist/index.js
+  1053→  1053→    envVars:
+  1054→  1054→      - key: DATABASE_URL
+  1055→  1055→        fromDatabase:
+  1056→  1056→          name: postgres-main
+  1057→  1057→          property: connectionString
+  1058→  1058→      - key: REDIS_URL
+  1059→  1059→        sync: false
+  1060→  1060→      - key: GEMINI_API_KEY
+  1061→  1061→        sync: false
+  1062→  1062→      - key: TWILIO_MASTER_SID
+  1063→  1063→        sync: false
+  1064→  1064→      - key: TWILIO_MASTER_TOKEN
+  1065→  1065→        sync: false
+  1066→  1066→      - key: WHOP_API_KEY
+  1067→  1067→        sync: false
+  1068→  1068→      - key: WHOP_WEBHOOK_SECRET
+  1069→  1069→        sync: false
+  1070→  1070→      - key: R2_ACCOUNT_ID
+  1071→  1071→        sync: false
+  1072→  1072→      - key: R2_ACCESS_KEY
+  1073→  1073→        sync: false
+  1074→  1074→      - key: R2_SECRET_KEY
+  1075→  1075→        sync: false
+  1076→  1076→      - key: JWT_SECRET
+  1077→  1077→        generateValue: true
+  1078→  1078→      - key: ENCRYPTION_KEY
+  1079→  1079→        generateValue: true
+  1080→  1080→
+  1081→  1081→  - type: web
+  1082→  1082→    name: frontend-next
+  1083→  1083→    runtime: node
+  1084→  1084→    buildCommand: cd frontend-next && npm install && npm run build
+  1085→  1085→    startCommand: cd frontend-next && npm start
+  1086→  1086→    envVars:
+  1087→  1087→      - key: NEXT_PUBLIC_API_URL
+  1088→  1088→        sync: false
+  1089→  1089→      - key: NEXT_PUBLIC_WS_URL
+  1090→  1090→        sync: false
+  1091→  1091→
+  1092→  1092→databases:
+  1093→  1093→  - name: postgres-main
+  1094→  1094→    plan: starter
+  1095→  1095→```
+  1096→  1096→
+  1097→  1097→### 15.3 Consideraciones Render
+  1098→  1098→
+  1099→  1099→- Render soporta WebSockets nativamente en Web Services [[4]].
+  1100→  1100→- El dominio del Express service será `wss://backend-express.onrender.com` (SSL automático).
+  1101→  1101→- **Importante**: Render en plan gratuito duerme tras 15 min de inactividad. Para producción, usar plan **Starter** o superior (siempre activo).
+  1102→  1102→- Configurar custom domain para el frontend.
+  1103→  1103→
+  1104→  1104→---
+  1105→  1105→
+  1106→  1106→## 16. RAG / EMBEDDINGS
+  1107→  1107→
+  1108→  1108→### 16.1 Modelo
+  1109→  1109→
+  1110→  1110→- **`gemini-embedding-001`** con `output_dimensionality: 768`.
+  1111→  1111→- `text-embedding-004` está deprecado. NO usarlo.
+  1112→  1112→
+  1113→  1113→### 16.2 Flujo
+  1114→  1114→
+  1115→  1115→```typescript
+  1116→  1116→import { GoogleGenAI } from '@google/genai';
+  1117→  1117→
+  1118→  1118→async function generarEmbedding(texto: string): Promise<number[]> {
+  1119→  1119→    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  1120→  1120→    const result = await ai.models.embedContent({
+  1121→  1121→        model: 'gemini-embedding-001',
+  1122→  1122→        contents: texto,
+  1123→  1123→        config: { outputDimensionality: 768 }
+  1124→  1124→    });
+  1125→  1125→    return result.embeddings[0].values;
+  1126→  1126→}
+  1127→  1127→```
+  1128→  1128→
+  1129→  1129→### 16.3 Búsqueda al inicio de llamada
+  1130→  1130→
+  1131→  1131→```typescript
+  1132→  1132→async function obtenerContextoNegocio(userId: string): Promise<string> {
+  1133→  1133→    // 1. Intentar Redis (TTL 60s)
+  1134→  1134→    const cached = await redis.get(`contexto:${userId}`);
+  1135→  1135→    if (cached) return cached;
+  1136→  1136→    
+  1137→  1137→    // 2. Buscar en pgvector (por si hay múltiples fragmentos)
+  1138→  1138→    const { rows } = await pool.query(`
+  1139→  1139→        SELECT raw_context, 1 - (embedding <=> $2::vector) AS similitud
+  1140→  1140→        FROM business_memory
+  1141→  1141→        WHERE user_id = $1 AND status = 'activo'
+  1142→  1142→        ORDER BY embedding <=> $2::vector
+  1143→  1143→        LIMIT 3
+  1144→  1144→    `, [userId, embeddingConsulta]);
+  1145→  1145→    
+  1146→  1146→    const contexto = rows.map(r => r.raw_context).join('\n---\n');
+  1147→  1147→    
+  1148→  1148→    // 3. Cachear
+  1149→  1149→    await redis.setex(`contexto:${userId}`, 60, contexto);
+  1150→  1150→    
+  1151→  1151→    return contexto;
+  1152→  1152→}
+  1153→  1153→```
+  1154→  1154→
+  1155→  1155→### 16.4 Invalidación de Cache
+  1156→  1156→
+  1157→  1157→Cuando el cliente edita su contexto o configuración:
+  1158→  1158→```typescript
+  1159→  1159→// En el endpoint de actualización
+  1160→  1160→await redis.del(`contexto:${userId}`);
+  1161→  1161→await redis.del(`settings:${userId}`);
+  1162→  1162→// La próxima llamada recarga desde Postgres
+  1163→  1163→```
+  1164→  1164→
+  1165→  1165→---
+  1166→  1166→
+  1167→  1167→## 17. INSTRUCCIONES FINALES PARA LA IA CONSTRUCTORA
+  1168→  1168→
+  1169→  1169→1. **Genera TODO el código**. Sin `// TODO`, sin placeholders, sin "implementar aquí".
+  1170→  1170→2. **Máximo 600 líneas por archivo**. Si excede, extraer a sub-módulo.
+  1171→  1171→3. **Idioma del código**: Variables, funciones, tablas, comentarios → **Español**.
+  1172→  1172→4. **Idioma de la IA en llamadas**: Dinámico según `business_settings.ai_language`.
+  1173→  1173→5. **Manejo de errores**: `try-catch` en todos los WebSockets. Si Gemini falla → mensaje de voz: *"Lo siento, tengo problemas técnicos. Intenta de nuevo."* + colgar.
+  1174→  1174→6. **Validación de overlap**: Antes de agendar, SIEMPRE verificar conflicto de horarios.
+  1175→  1175→7. **Transcodificación**: Usar `fluent-ffmpeg` + `g711`. Verificar que los buffers no se corrompan.
+  1176→  1176→8. **Function Calling síncrono**: El modelo PAUSA hasta recibir `functionResponses`. No continuar el loop sin enviar la respuesta.
+  1177→  1177→9. **Billing**: Debitar al finalizar la llamada. Registrar en `wallet_transactions` con `saldo_anterior` y `saldo_nuevo`.
+  1178→  1178→10. **Whop**: Verificar firma del webhook. Acreditar saldo solo tras `payment.succeeded`.
+  1179→  1179→11. **Redis**: Cachear contexto y settings con TTL 60s. Invalidar al editar.
+  1180→  1180→12. **Pino**: Loggear cada evento relevante (inicio llamada, fin llamada, error, function call, latencia).
+  1181→  1181→13. **Alertas**: Si CPU > umbral O RAM > umbral O latencia > umbral → email al admin + SSE.
+  1182→  1182→14. **Zonas horarias**: Guardar en UTC. Mostrar y comunicar en la zona del negocio. Usar `luxon` o `date-fns-tz`.
+  1183→  1183→15. **Grabación**: Solo si `grabacion_activa = true`. Ensamblar estéreo (izq=cliente, der=IA). Subir a R2.
+  1184→  1184→16. **Simulador**: Timeout de 30s silencio → preguntar. 60s más → cerrar. Guardar `raw_context` incluso si se cierra inesperadamente.
+  1185→  1185→17. **Scripts**: `backend-express/package.json` → `"dev": "nodemon src/index.ts"`. `frontend-next/package.json` → `"dev": "next dev"`.
+  1186→  1186→18. **Docker-compose local**: Solo Postgres + Redis. Express y Next corren con `npm run dev`.
+  1187→  1187→19. **Errores Twilio**: Loggear y monitorear 31924 (protocolo), 31903 (broken pipe), 31931 (buffer overflow).
+  1188→  1188→20. **No usar SMS**: No configurar `SmsUrl`. No crear endpoints SMS. No crear tablas SMS.
+  1189→  1189→
+  1190→  1190→---
+  1191→  1191→
+  1192→  1192→## 18. VARIABLES DE ENTORNO (.env)
+  1193→  1193→
+  1194→  1194→```env
+  1195→  1195→# ─── Base de Datos ───
+  1196→  1196→DATABASE_URL=postgresql://user:pass@localhost:5432/vozsaas
+  1197→  1197→
+  1198→  1198→# ─── Redis ───
+  1199→  1199→REDIS_URL=redis://localhost:6379
+  1200→  1200→
+  1201→  1201→# ─── Gemini ───
+  1202→  1202→GEMINI_API_KEY=AIza...
+  1203→  1203→
+  1204→  1204→# ─── Twilio (Cuenta Maestra) ───
+  1205→  1205→TWILIO_MASTER_SID=AC...
+  1206→  1206→TWILIO_MASTER_AUTH_TOKEN=...
+  1207→  1207→
+  1208→  1208→# ─── Whop ───
+  1209→  1209→WHOP_API_KEY=...
+  1210→  1210→WHOP_WEBHOOK_SECRET=...
+  1211→  1211→
+  1212→  1212→# ─── Cloudflare R2 ───
+  1213→  1213→R2_ACCOUNT_ID=...
+  1214→  1214→R2_ACCESS_KEY_ID=...
+  1215→  1215→R2_SECRET_ACCESS_KEY=...
+  1216→  1216→R2_BUCKET_NAME=grabaciones
+  1217→  1217→
+  1218→  1218→# ─── Auth ───
+  1219→  1219→JWT_SECRET=...
+  1220→  1220→JWT_REFRESH_SECRET=...
+  1221→  1221→ENCRYPTION_KEY=... # 32 bytes hex para AES-256
+  1222→  1222→
+  1223→  1223→# ─── Email ───
+  1224→  1224→SMTP_HOST=smtp.gmail.com
+  1225→  1225→SMTP_PORT=587
+  1226→  1226→SMTP_USER=...
+  1227→  1227→SMTP_PASS=... # App Password
+  1228→  1228→
+  1229→  1229→# ─── Dominios ───
+  1230→  1230→DOMINIO_FRONTEND=https://midominio.com
+  1231→  1231→DOMINIO_EXPRESS=https://backend-express.onrender.com
+  1232→  1232→
+  1233→  1233→# ─── Render ───
+  1234→  1234→NODE_ENV=production
+  1235→  1235→LOG_LEVEL=info
+  1236→  1236→```
+  1237→  1237→
+  1238→  1238→---
+  1239→  1239→
+  1240→  1240→**¡SISTEMA COMPLETAMENTE DEFINIDO! PROCEDE A CONSTRUIR LA PLATAFORMA.**
+  1241→  1241→
+  1242→  1242→---
+  1243→  1243→
+  1244→  1244→Ahí lo tienes. **Cada hueco cerrado. Cada flujo detallado. Cada tabla justificada.** La IA constructora no tiene que adivinar absolutamente nada.
+  1245→  1245→
+  1246→  1246→¿Quieres que ajuste algo más o así lo mandas a construir? 🚀

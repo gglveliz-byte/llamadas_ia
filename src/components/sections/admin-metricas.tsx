@@ -33,7 +33,22 @@ export function AdminMetricasSection() {
 
   const cargar = React.useCallback(async () => {
     try {
-      const d = await ApiClient.get<MetricasAdmin>("/api/admin/metrics");
+      // Primero intentar leer del backend Express real (vía proxy de Next.js)
+      let d: MetricasAdmin | null = null;
+      try {
+        const expressRes = await fetch(`/api/express/metrics`);
+        if (expressRes.ok) {
+          d = (await expressRes.json()) as MetricasAdmin;
+          console.log("[Métricas] Leyendo del backend Express (puerto 3001)");
+        }
+      } catch (e) {
+        console.warn("[Métricas] Express no disponible, fallback a /api/admin/metrics");
+      }
+
+      // Fallback a la API local de Next.js
+      if (!d) {
+        d = await ApiClient.get<MetricasAdmin>("/api/admin/metrics");
+      }
       setData(d);
     } finally {
       setLoading(false);
@@ -114,6 +129,21 @@ export function AdminMetricasSection() {
 
   return (
     <div className="space-y-6">
+      {/* Banner de fuente de datos */}
+      <Card className="panel-wa border-emerald-500/30 bg-emerald-500/5">
+        <CardContent className="p-3 flex items-center gap-3">
+          <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+          <div className="text-xs">
+            <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+              Conectado al backend Express (puerto 3001)
+            </span>
+            <span className="text-muted-foreground ml-2">
+              Métricas en tiempo real cada 10s · WebSocket Twilio Stream activo · SSE broadcasting
+            </span>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Alertas */}
       {alertasActivas.length > 0 && (
         <Card className="panel-wa border-destructive/30 bg-destructive/5">
@@ -325,7 +355,7 @@ export function AdminMetricasSection() {
           <CardContent className="space-y-3">
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Heap Node.js</span>
-              <span className="font-semibold tabular-nums">{actual.heap.toFixed(1)} MB</span>
+              <span className="font-semibold tabular-nums">{(actual.heapMb ?? actual.heap ?? 0).toFixed(1)} MB</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Uptime</span>
@@ -339,6 +369,14 @@ export function AdminMetricasSection() {
                 {new Date(actual.ts).toLocaleTimeString("es-MX")}
               </span>
             </div>
+            {actual.clientesSSE !== undefined && (
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Clientes SSE</span>
+                <span className="font-semibold tabular-nums text-emerald-600">
+                  {actual.clientesSSE} conectados
+                </span>
+              </div>
+            )}
             <div className="pt-2 border-t border-border">
               <div className="text-[10px] text-muted-foreground mb-1">Umbrales configurados</div>
               <div className="grid grid-cols-3 gap-2 text-center text-xs">

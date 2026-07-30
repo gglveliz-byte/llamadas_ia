@@ -23,6 +23,8 @@ import {
 } from "@/components/ui/sheet";
 import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useSSE } from "@/hooks/use-sse";
+import { toast } from "sonner";
 
 export function AppShell() {
   const { usuario, setUsuario, seccion, walletVersion } = useAppStore();
@@ -30,6 +32,8 @@ export function AppShell() {
   const [walletSaldo, setWalletSaldo] = React.useState(0);
   const [porcentajeSaldo, setPorcentajeSaldo] = React.useState(100);
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
+  const { eventos, conectado } = useSSE();
+  const lastEventTs = React.useRef(0);
 
   // Cargar sesión al montar
   React.useEffect(() => {
@@ -67,6 +71,41 @@ export function AppShell() {
         setPorcentajeSaldo(0);
       });
   }, [usuario, seccion, walletVersion]);
+
+  // Mostrar toast en eventos SSE importantes
+  React.useEffect(() => {
+    if (eventos.length === 0) return;
+    const ultimo = eventos[eventos.length - 1];
+    if (ultimo.ts === lastEventTs.current) return;
+    lastEventTs.current = ultimo.ts;
+
+    const data = ultimo.data as Record<string, unknown>;
+    switch (ultimo.tipo) {
+      case "conexion_establecida":
+        console.log("[SSE] Conectado al backend Express en tiempo real");
+        break;
+      case "nueva_cita":
+        toast.success("📅 Nueva cita agendada por la IA");
+        break;
+      case "llamada_iniciada":
+        toast.info("📞 Llamada entrante en curso");
+        break;
+      case "llamada_finalizada": {
+        const d = data as { duracionSegundos?: number; costo?: number };
+        toast.success(`✅ Llamada finalizada · ${d.duracionSegundos ?? 0}s · $${(d.costo ?? 0).toFixed(2)}`);
+        break;
+      }
+      case "saldo_bajo":
+        toast.warning("⚠️ Saldo bajo - considera recargar");
+        break;
+      case "alerta_sistema":
+        toast.error("🚨 Alerta del sistema - revisa métricas");
+        break;
+      case "recarga_exitosa":
+        toast.success("💰 Recarga acreditada");
+        break;
+    }
+  }, [eventos]);
 
   if (cargandoSesion) {
     return (
@@ -144,7 +183,7 @@ export function AppShell() {
 
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Topbar onMenuClick={() => setSidebarOpen(true)} />
+        <Topbar onMenuClick={() => setSidebarOpen(true)} sseConectado={conectado} />
         <main className="flex-1 overflow-y-auto wa-scroll p-4 lg:p-6 chat-bg">
           {renderSeccion()}
         </main>

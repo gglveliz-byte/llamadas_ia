@@ -163,9 +163,11 @@ export interface MetricasAdmin {
     latencia: number;
     llamadas: number;
     llamadasActivas: number;
-    heap: number;
+    heap?: number;
+    heapMb?: number;
     uptime: number;
     ts: string;
+    clientesSSE?: number;
   };
   historial: Array<{
     ts: string;
@@ -191,6 +193,7 @@ export interface MetricasAdmin {
   };
   umbrales: { cpu: number; ram: number; latencia: number };
   alertas: Array<{ tipo: string; mensaje: string }>;
+  fuente?: string;
 }
 
 export interface Cashflow {

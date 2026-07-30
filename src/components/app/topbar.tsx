@@ -29,7 +29,13 @@ const TITULOS: Record<Seccion, string> = {
   "admin-config": "Admin · Configuración Global",
 };
 
-export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
+export function Topbar({
+  onMenuClick,
+  sseConectado,
+}: {
+  onMenuClick?: () => void;
+  sseConectado?: boolean;
+}) {
   const { usuario, seccion } = useAppStore();
   const [notifs, setNotifs] = React.useState<Notification[]>([]);
   const [unread, setUnread] = React.useState(0);
@@ -76,6 +82,22 @@ export function Topbar({ onMenuClick }: { onMenuClick?: () => void }) {
       </div>
 
       <div className="flex items-center gap-2">
+        {sseConectado !== undefined && (
+          <div
+            className="flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-medium"
+            title={sseConectado ? "Conectado al backend Express en tiempo real" : "Sin conexión SSE"}
+          >
+            <span
+              className={cn(
+                "h-2 w-2 rounded-full",
+                sseConectado ? "bg-emerald-500 animate-pulse" : "bg-slate-400"
+              )}
+            />
+            <span className={cn(sseConectado ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground")}>
+              {sseConectado ? "Live" : "Offline"}
+            </span>
+          </div>
+        )}
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
             <Button variant="ghost" size="icon" className="relative">

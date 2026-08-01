@@ -4,6 +4,7 @@ out/
 build
 dist/
 .env*
+!.env.example
 *.log
 *.tsbuildinfo
 next-env.d.ts

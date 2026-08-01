@@ -25,7 +25,6 @@ const requiredEnv = {
   TELNYX_API_KEY: "Telnyx API Key v2",
   TELNYX_PUBLIC_KEY: "Telnyx Public Key (Ed25519) for webhook verification",
   TELNYX_WEBHOOK_SECRET: "Telnyx webhook secret (optional HMAC)",
-  TELNYX_ORG_ID: "Telnyx Organization ID for child accounts",
   TELNYX_WEBHOOK_URL: "Telnyx webhook URL (e.g. https://api.vozia.com/webhooks/telnyx/voice)",
   WHOP_API_KEY: "Whop API key",
   WHOP_WEBHOOK_SECRET: "Whop webhook signing secret",
@@ -50,6 +49,7 @@ const requiredEnv = {
 const optionalEnv = {
   NODE_ENV: "development",
   LOG_LEVEL: "info",
+  TELNYX_ORG_ID: "Telnyx Organization ID for child accounts (optional, solo si usas subcuentas)",
 };
 
 function validateEnv(): void {

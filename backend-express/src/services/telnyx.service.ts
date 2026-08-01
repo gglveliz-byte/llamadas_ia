@@ -7,11 +7,12 @@ import { logger } from "../utils/logger";
 
 const TELNYX_API_BASE = "https://api.telnyx.com/v2";
 const TELNYX_API_KEY = process.env.TELNYX_API_KEY!;
-const TELNYX_ORG_ID = process.env.TELNYX_ORG_ID!;
+const TELNYX_ORG_ID = process.env.TELNYX_ORG_ID; // optional: solo para child accounts
 
 /**
  * Crea una cuenta hija completa con API Key y conexión de voz configurada.
  * Retorna todo lo necesario para que el cliente empiece a recibir llamadas.
+ * Requiere TELNYX_ORG_ID configurado (plan Telnyx $1000/mes).
  */
 export async function createChildAccountWithSetup(
   accountName: string,
@@ -139,8 +140,12 @@ async function telnyxFetch<T>(path: string, options: RequestInit = {}): Promise<
 /**
  * Crea una cuenta hija (child account) para un cliente.
  * En Telnyx v2: POST /v2/organizations/{org_id}/child_accounts
+ * Requiere TELNYX_ORG_ID configurado (plan Telnyx $1000/mes).
  */
 export async function createChildAccount(accountName: string, email?: string): Promise<ChildAccount> {
+  if (!TELNYX_ORG_ID) {
+    throw new Error("TELNYX_ORG_ID no configurado. Requiere plan Telnyx $1000/mes para child accounts.");
+  }
   const data = await telnyxFetch<{ data: ChildAccount }>(
     `/organizations/${TELNYX_ORG_ID}/child_accounts`,
     {

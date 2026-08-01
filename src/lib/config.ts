@@ -116,4 +116,10 @@ export const env = {
   },
 };
 
-validateEnv();
+if (typeof window === "undefined" && process.env.NEXT_RUNTIME === "nodejs") {
+  try { validateEnv(); } catch {}
+}
+
+export function validateEnvNow(): void {
+  validateEnv();
+}

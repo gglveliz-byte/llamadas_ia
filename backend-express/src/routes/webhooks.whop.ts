@@ -14,10 +14,10 @@ import { logger } from "../utils/logger";
 export const whopRouter = Router();
 
 const whopsdk = new Whop({
-  apiKey: process.env.WHOP_API_KEY || "dev",
+  apiKey: process.env.WHOP_API_KEY || "dummy_api_key",
   webhookKey: process.env.WHOP_WEBHOOK_SECRET
     ? btoa(process.env.WHOP_WEBHOOK_SECRET)
-    : btoa("dev"),
+    : "dummy_webhook_key",
 });
 
 /**

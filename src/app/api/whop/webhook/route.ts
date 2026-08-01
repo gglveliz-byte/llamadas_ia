@@ -4,8 +4,8 @@ import { Whop } from "@whop/sdk";
 import { logger } from "@/lib/logger";
 
 const whopsdk = new Whop({
-  apiKey: process.env.WHOP_API_KEY!,
-  webhookKey: btoa(process.env.WHOP_WEBHOOK_SECRET!),
+  apiKey: process.env.WHOP_API_KEY || "dummy_api_key",
+  webhookKey: process.env.WHOP_WEBHOOK_SECRET ? btoa(process.env.WHOP_WEBHOOK_SECRET) : "dummy_webhook_key",
 });
 
 export async function POST(req: NextRequest) {

@@ -4,7 +4,7 @@ import { verificarJwt } from "@/lib/auth-utils";
 import { Whop } from "@whop/sdk";
 
 const whop = new Whop({
-  apiKey: process.env.WHOP_API_KEY!,
+  apiKey: process.env.WHOP_API_KEY || "dummy_api_key",
 });
 
 export async function POST(req: NextRequest) {

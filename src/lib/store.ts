@@ -13,6 +13,7 @@ export type Seccion =
   | "admin-tarifas"
   | "admin-metricas"
   | "admin-flujo"
+  | "admin-ranking"
   | "admin-config";
 
 interface SesionUsuario {
@@ -23,14 +24,19 @@ interface SesionUsuario {
   businessPhone: string | null;
   isVerified: boolean;
   isSuspended: boolean;
-  twilioSubaccountSid: string | null;
+  telnyxChildAccountId: string | null;
+  telnyxProvisioningStatus?: string;
+  telnyxProvisioningError?: string | null;
 }
 
 interface SesionState {
   usuario: SesionUsuario | null;
+  token: string | null;
+  refreshToken: string | null;
   seccion: Seccion;
   walletVersion: number;
   setUsuario: (u: SesionUsuario | null) => void;
+  setTokens: (token: string, refreshToken: string) => void;
   setSeccion: (s: Seccion) => void;
   refreshWallet: () => void;
   logout: () => void;
@@ -40,12 +46,15 @@ export const useAppStore = create<SesionState>()(
   persist(
     (set) => ({
       usuario: null,
+      token: null,
+      refreshToken: null,
       seccion: "dashboard",
       walletVersion: 0,
       setUsuario: (u) => set({ usuario: u }),
+      setTokens: (token, refreshToken) => set({ token, refreshToken }),
       setSeccion: (s) => set({ seccion: s }),
       refreshWallet: () => set((state) => ({ walletVersion: state.walletVersion + 1 })),
-      logout: () => set({ usuario: null, seccion: "dashboard" }),
+      logout: () => set({ usuario: null, token: null, refreshToken: null, seccion: "dashboard" }),
     }),
     {
       name: "vozia-store",
@@ -59,9 +68,13 @@ export const useAppStore = create<SesionState>()(
               businessPhone: state.usuario.businessPhone,
               isVerified: state.usuario.isVerified,
               isSuspended: state.usuario.isSuspended,
-              twilioSubaccountSid: state.usuario.twilioSubaccountSid,
+              telnyxChildAccountId: state.usuario.telnyxChildAccountId,
+              telnyxProvisioningStatus: state.usuario.telnyxProvisioningStatus,
+              telnyxProvisioningError: state.usuario.telnyxProvisioningError,
             }
           : null,
+        token: state.token,
+        refreshToken: state.refreshToken,
         seccion: state.seccion,
       }),
     }

@@ -18,5 +18,12 @@ export async function GET(req: NextRequest) {
     take: limit,
   });
 
-  return NextResponse.json({ transactions: txs });
+  return NextResponse.json({
+    transactions: txs.map((t) => ({
+      ...t,
+      monto: t.monto.toNumber(),
+      saldoAnterior: t.saldoAnterior.toNumber(),
+      saldoNuevo: t.saldoNuevo.toNumber(),
+    })),
+  });
 }

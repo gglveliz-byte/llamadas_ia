@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
   }
 
   // URL del backend Express
-  const backendUrl = `http://localhost:3001/sse/events?user_id=${encodeURIComponent(userId)}${token ? `&token=${encodeURIComponent(token)}` : ""}`;
+  const backendUrl = `${process.env.DOMINIO_EXPRESS}/sse/events?user_id=${encodeURIComponent(userId)}${token ? `&token=${encodeURIComponent(token)}` : ""}`;
 
   try {
     const upstream = await fetch(backendUrl, {

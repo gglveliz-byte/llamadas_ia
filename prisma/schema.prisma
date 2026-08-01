@@ -1,41 +1,33 @@
-// ============================================================
-// PLATAFORMA SAAS DE AGENTE DE VOZ IA - Schema Multi-tenant
-// Adaptado de PostgreSQL+pgvector a SQLite para entorno sandbox.
-// La estructura lógica respeta el spec original (secciones 4-9).
-// ============================================================
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-// ═══════════════════════════════════════════
-// 1. USUARIOS (Clientes del SaaS + Admin)
-// ═══════════════════════════════════════════
 model User {
-  id                            String   @id @default(cuid())
+  id                            String   @id @default(uuid()) @db.Uuid
   email                         String   @unique
   passwordHash                  String
-  role                          String   @default("cliente") // 'cliente' | 'admin'
+  role                          String   @default("cliente")
   isVerified                    Boolean  @default(false)
   verificationToken             String?
   recoveryToken                 String?
+  resetToken                    String?
+  resetTokenExpiry              DateTime?
   isSuspended                   Boolean  @default(false)
   createdAt                     DateTime @default(now())
 
-  // Perfil del negocio
   businessName                  String?
   businessPhone                 String?
 
-  // Credenciales Twilio (encriptadas AES-256-GCM en prod)
-  twilioSubaccountSid           String?
-  twilioSubaccountAuthTokenEnc  String?
+  telnyxChildAccountId          String?
+  telnyxApiKeyEncrypted         String?
+  telnyxProvisioningStatus      String   @default("none")
+  telnyxProvisioningError       String?
 
-  // Relaciones
   settings                      BusinessSettings?
   wallet                        Wallet?
   transactions                  WalletTransaction[]
@@ -44,118 +36,115 @@ model User {
   recordings                    CallRecording[]
   metrics                       CallMetric[]
   memories                      BusinessMemory[]
+  transcripts                   CallTranscript[]
+
+  @@map("users")
 }
 
-// ═══════════════════════════════════════════
-// 2. CONFIGURACIÓN DEL NEGOCIO
-// ═══════════════════════════════════════════
 model BusinessSettings {
-  userId                String   @id
+  userId                String   @id @db.Uuid
   user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  aiLanguage            String   @default("es") // 'es','en','pt','fr', etc.
-  bookingMode           String   @default("hours") // 'hours' | 'nights'
+  aiLanguage            String   @default("es")
+  bookingMode           String   @default("hours")
   defaultDurationMinutes Int     @default(30)
   checkInTime           String   @default("15:00")
   checkOutTime          String   @default("11:00")
 
-  // Horarios de atención (JSON por día)
-  businessHours         String   @default("{\"lunes\":{\"abierto\":true,\"inicio\":\"09:00\",\"fin\":\"18:00\"},\"martes\":{\"abierto\":true,\"inicio\":\"09:00\",\"fin\":\"18:00\"},\"miercoles\":{\"abierto\":true,\"inicio\":\"09:00\",\"fin\":\"18:00\"},\"jueves\":{\"abierto\":true,\"inicio\":\"09:00\",\"fin\":\"18:00\"},\"viernes\":{\"abierto\":true,\"inicio\":\"09:00\",\"fin\":\"18:00\"},\"sabado\":{\"abierto\":true,\"inicio\":\"09:00\",\"fin\":\"14:00\"},\"domingo\":{\"abierto\":false,\"inicio\":null,\"fin\":null}}")
+  businessHours         Json     @default("{\"lunes\":{\"abierto\":true,\"inicio\":\"09:00\",\"fin\":\"18:00\"},\"martes\":{\"abierto\":true,\"inicio\":\"09:00\",\"fin\":\"18:00\"},\"miercoles\":{\"abierto\":true,\"inicio\":\"09:00\",\"fin\":\"18:00\"},\"jueves\":{\"abierto\":true,\"inicio\":\"09:00\",\"fin\":\"18:00\"},\"viernes\":{\"abierto\":true,\"inicio\":\"09:00\",\"fin\":\"18:00\"},\"sabado\":{\"abierto\":true,\"inicio\":\"09:00\",\"fin\":\"14:00\"},\"domingo\":{\"abierto\":false,\"inicio\":null,\"fin\":null}}")
 
   modo247               Boolean  @default(false)
   timezone              String   @default("America/Mexico_City")
 
   grabacionActiva       Boolean  @default(false)
-  mensajeConsentimiento String  @default("Esta llamada puede ser grabada para fines de calidad.")
+  mensajeConsentimiento String   @default("Esta llamada puede ser grabada para fines de calidad.")
   consentimientoActivo  Boolean  @default(false)
 
-  // Formulario dinámico
-  formFields            String   @default("[{\"key\":\"nombre\",\"label\":\"Nombre completo\",\"type\":\"text\",\"required\":true},{\"key\":\"telefono\",\"label\":\"Teléfono\",\"type\":\"tel\",\"required\":false},{\"key\":\"email\",\"label\":\"Correo electrónico\",\"type\":\"email\",\"required\":false},{\"key\":\"notas\",\"label\":\"Notas adicionales\",\"type\":\"textarea\",\"required\":false}]")
+  formFields            Json     @default("[{\"key\":\"nombre\",\"label\":\"Nombre completo\",\"type\":\"text\",\"required\":true},{\"key\":\"telefono\",\"label\":\"Teléfono\",\"type\":\"tel\",\"required\":false},{\"key\":\"email\",\"label\":\"Correo electrónico\",\"type\":\"email\",\"required\":false},{\"key\":\"notas\",\"label\":\"Notas adicionales\",\"type\":\"textarea\",\"required\":false}]")
 
   systemPromptContext   String   @default("Eres un asistente amable que agenda citas...")
 
-  // Recursos del negocio (barbería: sillas, clínica: doctores, hotel: habitaciones)
-  recursos              String   @default("[]")
+  recursos              Json     @default("[]")
 
   updatedAt             DateTime @updatedAt
+
+  @@map("business_settings")
 }
 
-// ═══════════════════════════════════════════
-// 3. WALLET / BILLING (Ledger)
-// ═══════════════════════════════════════════
 model Wallet {
-  userId     String   @id
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  saldo      Float    @default(0) // Saldo actual (puede ser negativo)
-  moneda     String   @default("USD")
-  updatedAt  DateTime @updatedAt
+  userId     String              @id @db.Uuid
+  user       User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  saldo      Decimal             @default(0) @db.Decimal(10, 4)
+  moneda     String              @default("USD")
+  updatedAt  DateTime            @updatedAt
 
   transactions WalletTransaction[]
+
+  @@map("wallet")
 }
 
 model WalletTransaction {
-  id              String   @id @default(cuid())
-  userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  wallet          Wallet?  @relation(fields: [userId], references: [userId])
-  tipo            String   // 'recarga' | 'debito' | 'ajuste_admin' | 'trial'
-  monto           Float    // Positivo = crédito, Negativo = débito
-  saldoAnterior   Float
-  saldoNuevo      Float
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @db.Uuid
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade, map: "wallet_tx_user_fkey")
+  wallet          Wallet?  @relation(fields: [userId], references: [userId], map: "wallet_tx_wallet_fkey")
+  tipo            String
+  monto           Decimal  @db.Decimal(10, 4)
+  saldoAnterior   Decimal  @db.Decimal(10, 4)
+  saldoNuevo      Decimal  @db.Decimal(10, 4)
   whopPaymentId   String?
   callSid         String?
   descripcion     String?
   createdAt       DateTime @default(now())
 
   @@index([userId, createdAt])
+  @@unique([tipo, whopPaymentId])
+  @@unique([tipo, callSid])
+  @@map("wallet_transactions")
 }
 
 model RechargePackage {
-  id                 Int      @id @default(autoincrement())
-  nombre             String
-  montoRecarga       Float    // Cuánto paga el cliente
-  saldoOtorgado      Float    // Cuánto saldo recibe
-  precioPorMinuto    Float
-  precioPorSegundo   Float?
-  activo             Boolean  @default(true)
-  createdAt          DateTime @default(now())
+  id               Int      @id @default(autoincrement())
+  nombre           String
+  montoRecarga     Decimal  @db.Decimal(10, 2)
+  saldoOtorgado    Decimal  @db.Decimal(10, 2)
+  precioPorMinuto  Decimal  @db.Decimal(10, 4)
+  precioPorSegundo Decimal? @db.Decimal(10, 6)
+  activo           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+
+  @@map("recharge_packages")
 }
 
-// ═══════════════════════════════════════════
-// 4. CONFIGURACIÓN GLOBAL DEL ADMIN
-// ═══════════════════════════════════════════
 model AdminConfig {
   id          Int      @id @default(autoincrement())
   clave       String   @unique
   valor       String
   descripcion String?
   updatedAt   DateTime @updatedAt
+
+  @@map("admin_config")
 }
 
-// ═══════════════════════════════════════════
-// 5. MEMORIA / RAG
-// ═══════════════════════════════════════════
 model BusinessMemory {
-  id          Int      @id @default(autoincrement())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id          Int    @id @default(autoincrement())
+  userId      String @db.Uuid
+  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   rawContext  String
-  // embedding vector(768) -- en SQLite se omite el vector, se simula en capa de servicio
-  status      String   @default("activo") // 'borrador' | 'activo' | 'archivado'
-  version     Int      @default(1)
+  embedding   Unsupported("vector(768)")?
+  status      String @default("activo")
+  version     Int    @default(1)
   createdAt   DateTime @default(now())
 
-  @@index([userId])
+  @@index([userId, status])
+  @@map("business_memory")
 }
 
-// ═══════════════════════════════════════════
-// 6. NÚMEROS TELEFÓNICOS
-// ═══════════════════════════════════════════
 model PhoneNumber {
   id              Int      @id @default(autoincrement())
-  userId          String
+  userId          String   @db.Uuid
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  twilioPhoneSid  String?
+  telnyxPhoneSid  String?
   phoneNumber     String   @unique
   countryCode     String   @default("+1")
   isActive        Boolean  @default(true)
@@ -164,14 +153,12 @@ model PhoneNumber {
   appointments    Appointment[]
 
   @@index([userId])
+  @@map("phone_numbers")
 }
 
-// ═══════════════════════════════════════════
-// 7. CITAS (Universal: horas, noches, recursos)
-// ═══════════════════════════════════════════
 model Appointment {
-  id              String   @id @default(cuid())
-  userId          String
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @db.Uuid
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   phoneNumberId   Int?
   phoneNumber     PhoneNumber? @relation(fields: [phoneNumberId], references: [id])
@@ -179,14 +166,14 @@ model Appointment {
   customerName    String
   customerPhone   String?
   customerEmail   String?
-  extraFields     String?  // JSON string
+  extraFields     Json?
 
-  startTime       DateTime // UTC
-  endTime         DateTime?
+  startTime       DateTime @db.Timestamptz
+  endTime         DateTime? @db.Timestamptz
   durationMinutes Int?
 
   recursoId       String?
-  status          String   @default("agendado") // 'agendado'|'asistio'|'no_asistio'|'cancelado'
+  status          String   @default("agendado")
   notes           String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -194,56 +181,81 @@ model Appointment {
   recordings      CallRecording[]
 
   @@index([userId, startTime])
-  @@index([userId, recursoId])
+  @@index([userId, recursoId, startTime])
+  @@map("appointments")
 }
 
-// ═══════════════════════════════════════════
-// 8. GRABACIONES
-// ═══════════════════════════════════════════
 model CallRecording {
-  id              Int      @id @default(autoincrement())
-  userId          String
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  appointmentId   String?
-  appointment     Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
-  twilioCallSid   String?
-  twilioStreamSid String?
-  r2FileUrl       String
-  durationSeconds Int?
-  createdAt       DateTime @default(now())
+  id                  Int      @id @default(autoincrement())
+  userId              String   @db.Uuid
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  appointmentId       String?  @db.Uuid
+  appointment         Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  telnyxCallControlId String?
+  telnyxStreamSid     String?
+  r2FileUrl           String
+  durationSeconds     Int?
+  createdAt           DateTime @default(now())
+
+  @@map("call_recordings")
 }
 
-// ═══════════════════════════════════════════
-// 9. MÉTRICAS DE LLAMADAS (monitoreo)
-// ═══════════════════════════════════════════
 model CallMetric {
-  id              Int      @id @default(autoincrement())
-  callSid         String?
-  userId          String?
-  user            User?     @relation(fields: [userId], references: [id])
-  inicio          DateTime?
-  fin             DateTime?
-  duracionSegundos Int?
-  latenciaPromedioMs Int?
-  latenciaMaxMs   Int?
-  cobroAplicado   Float?
-  errorCode       String?
-  createdAt       DateTime @default(now())
+  id                  Int      @id @default(autoincrement())
+  callSid             String?
+  userId              String?  @db.Uuid
+  user                User?    @relation(fields: [userId], references: [id])
+  inicio              DateTime?
+  fin                 DateTime?
+  duracionSegundos    Int?
+  latenciaPromedioMs  Int?
+  latenciaMaxMs       Int?
+  cobroAplicado       Decimal? @db.Decimal(10, 4)
+  errorCode           String?
+  createdAt           DateTime @default(now())
 
   @@index([userId, createdAt])
+  @@map("call_metrics")
 }
 
-// ═══════════════════════════════════════════
-// 10. NOTIFICACIONES (log de eventos SSE)
-// ═══════════════════════════════════════════
+model CallTranscript {
+  id        Int      @id @default(autoincrement())
+  callSid   String
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rol       String
+  texto     String
+  ts        DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([callSid])
+  @@map("call_transcripts")
+}
+
 model Notification {
   id        Int      @id @default(autoincrement())
-  userId    String
-  tipo      String   // 'nueva_cita'|'llamada_finalizada'|'saldo_bajo'|'alerta_sistema'|'transcripcion'
+  userId    String   @db.Uuid
+  tipo      String
   titulo    String
   mensaje   String
   leida     Boolean  @default(false)
   createdAt DateTime @default(now())
 
   @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id            Int      @id @default(autoincrement())
+  adminId       String   @db.Uuid
+  targetUserId  String?  @db.Uuid
+  action        String
+  details       Json?
+  createdAt     DateTime @default(now())
+
+  @@index([adminId, createdAt])
+  @@index([targetUserId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_logs")
 }

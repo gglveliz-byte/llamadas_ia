@@ -75,7 +75,9 @@ export function AdminMetricasSection() {
     );
   }
 
-  const { actual, historial, aggregate, rateLimits, umbrales } = data;
+  const { actual, historial, aggregate, rateLimits, umbrales, fuente } = data;
+
+  const esFallback = fuente === "fallback-db";
 
   const alertasActivas: Array<{ tipo: string; valor: string; umbral: string }> = [];
   if (actual.cpu > umbrales.cpu) alertasActivas.push({ tipo: "CPU", valor: actual.cpu.toFixed(1) + "%", umbral: umbrales.cpu + "%" });
@@ -130,15 +132,21 @@ export function AdminMetricasSection() {
   return (
     <div className="space-y-6">
       {/* Banner de fuente de datos */}
-      <Card className="panel-wa border-emerald-500/30 bg-emerald-500/5">
+      <Card className={cn("panel-wa", esFallback ? "border-amber-500/30 bg-amber-500/5" : "border-emerald-500/30 bg-emerald-500/5")}>
         <CardContent className="p-3 flex items-center gap-3">
-          <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+          <div className={cn("h-2 w-2 rounded-full animate-pulse", esFallback ? "bg-amber-500" : "bg-emerald-500")} />
           <div className="text-xs">
-            <span className="font-semibold text-emerald-700 dark:text-emerald-400">
-              Conectado al backend Express (puerto 3001)
-            </span>
+            {esFallback ? (
+              <span className="font-semibold text-amber-700 dark:text-amber-400">
+                Backend Express no disponible — mostrando agregados de BD
+              </span>
+            ) : (
+              <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+                Conectado al backend Express
+              </span>
+            )}
             <span className="text-muted-foreground ml-2">
-              Métricas en tiempo real cada 10s · WebSocket Twilio Stream activo · SSE broadcasting
+              Métricas en tiempo real cada 10s · WebSocket Telnyx Stream activo · SSE broadcasting
             </span>
           </div>
         </CardContent>
@@ -319,13 +327,13 @@ export function AdminMetricasSection() {
 
             <div>
               <div className="flex items-center justify-between mb-1">
-                <span className="text-sm font-medium">Twilio concurrencia</span>
+                <span className="text-sm font-medium">Telnyx concurrencia</span>
                 <Badge variant="outline" className="text-[10px]">
-                  {rateLimits.twilio.concurrentCalls}/{rateLimits.twilio.maxConcurrent}
+                  {rateLimits.telnyx.concurrentCalls}/{rateLimits.telnyx.maxConcurrent}
                 </Badge>
               </div>
               <Progress
-                value={(rateLimits.twilio.concurrentCalls / rateLimits.twilio.maxConcurrent) * 100}
+                value={(rateLimits.telnyx.concurrentCalls / rateLimits.telnyx.maxConcurrent) * 100}
                 className="h-2"
               />
             </div>

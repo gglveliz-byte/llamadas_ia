@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Phone, Mail, Shield, ArrowRight, Sparkles } from "lucide-react";
+import { Phone, Mail, Shield, ArrowRight, Sparkles, Lock, UserPlus, LogIn, AlertCircle, X } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import { ApiClient, type Usuario } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -19,11 +19,16 @@ interface UsuarioDemo {
 }
 
 export function LoginScreen() {
-  const { setUsuario, setSeccion } = useAppStore();
+  const { setUsuario, setTokens, setSeccion } = useAppStore();
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [loading, setLoading] = React.useState(false);
+  const [modo, setModo] = React.useState<"login" | "register">("login");
+  const [businessName, setBusinessName] = React.useState("");
   const [usuariosDemo, setUsuariosDemo] = React.useState<UsuarioDemo[]>([]);
+  const [forgotModalOpen, setForgotModalOpen] = React.useState(false);
+  const [forgotEmail, setForgotEmail] = React.useState("");
+  const [forgotLoading, setForgotLoading] = React.useState(false);
 
   React.useEffect(() => {
     ApiClient.get<{ clientes: UsuarioDemo[]; admin: UsuarioDemo[] }>(
@@ -33,7 +38,54 @@ export function LoginScreen() {
     });
   }, []);
 
-  const login = async (usuarioDemo?: UsuarioDemo) => {
+  const loginReal = async () => {
+    if (!email || !password) {
+      toast.error("Ingresa email y contraseña");
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await ApiClient.post<{
+        user: Usuario;
+        token: string;
+        refreshToken: string;
+      }>("/api/auth/login", { email, password });
+      setUsuario(res.user);
+      setTokens(res.token, res.refreshToken);
+      setSeccion(res.user.role === "admin" ? "admin-metricas" : "dashboard");
+      toast.success(`Bienvenido, ${res.user.businessName || res.user.email}`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const register = async () => {
+    if (!email || !password) {
+      toast.error("Ingresa email y contraseña");
+      return;
+    }
+    if (password.length < 6) {
+      toast.error("La contraseña debe tener al menos 6 caracteres");
+      return;
+    }
+    setLoading(true);
+    try {
+      await ApiClient.post<{
+        mensaje: string;
+      }>("/api/auth/register", { email, password, businessName: businessName || undefined });
+      toast.success("Cuenta creada. Revisa tu email para verificarla.");
+      setPassword("");
+      setModo("login");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loginDemo = async (usuarioDemo?: UsuarioDemo) => {
     setLoading(true);
     try {
       const target = usuarioDemo?.id;
@@ -41,7 +93,7 @@ export function LoginScreen() {
         user: Usuario;
       }>("/api/session", target ? { userId: target } : {});
       setUsuario(res.user);
-      setSeccion("dashboard");
+      setSeccion(res.user.role === "admin" ? "admin-metricas" : "dashboard");
       toast.success(`Bienvenido, ${res.user.businessName || res.user.email}`);
     } catch (e) {
       toast.error("Error al iniciar sesión: " + (e as Error).message);
@@ -50,10 +102,27 @@ export function LoginScreen() {
     }
   };
 
+  const handleForgotPassword = async () => {
+    if (!forgotEmail) {
+      toast.error("Ingresa tu email");
+      return;
+    }
+    setForgotLoading(true);
+    try {
+      await ApiClient.post("/api/auth/forgot-password", { email: forgotEmail });
+      toast.success("Si el email existe, recibirás instrucciones para restablecer tu contraseña");
+      setForgotModalOpen(false);
+      setForgotEmail("");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background chat-bg p-4">
       <div className="w-full max-w-md space-y-6">
-        {/* Logo */}
         <div className="text-center space-y-3">
           <div className="inline-flex h-14 w-14 rounded-full bg-primary items-center justify-center shadow-lg">
             <Phone className="h-7 w-7 text-primary-foreground" />
@@ -61,7 +130,7 @@ export function LoginScreen() {
           <div>
             <h1 className="text-3xl font-bold tracking-tight">VozIA</h1>
             <p className="text-sm text-muted-foreground">
-              Plataforma SaaS de Agentes de Voz con IA
+              Asistente de voz con IA para tu negocio
             </p>
           </div>
         </div>
@@ -70,7 +139,7 @@ export function LoginScreen() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Sparkles className="h-5 w-5 text-primary" />
-              Iniciar sesión
+              {modo === "login" ? "Iniciar sesión" : "Crear cuenta"}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -90,22 +159,67 @@ export function LoginScreen() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Contraseña</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="••••••••"
+                  className="pl-9"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => setForgotModalOpen(true)}
+                className="text-xs text-primary hover:underline self-end"
+              >
+                ¿Olvidé contraseña?
+              </button>
             </div>
-            <Button
-              className="w-full"
-              onClick={() => login()}
-              disabled={loading || !email}
-            >
-              {loading ? "Cargando..." : "Entrar"}
-              <ArrowRight className="h-4 w-4 ml-2" />
-            </Button>
+            {modo === "register" && (
+              <div className="space-y-2">
+                <Label htmlFor="businessName">Nombre del negocio (opcional)</Label>
+                <Input
+                  id="businessName"
+                  placeholder="Mi Negocio"
+                  value={businessName}
+                  onChange={(e) => setBusinessName(e.target.value)}
+                />
+              </div>
+            )}
+
+            {modo === "login" ? (
+              <Button
+                className="w-full"
+                onClick={loginReal}
+                disabled={loading || !email || !password}
+              >
+                {loading ? "Cargando..." : "Entrar"}
+                <LogIn className="h-4 w-4 ml-2" />
+              </Button>
+            ) : (
+              <Button
+                className="w-full"
+                onClick={register}
+                disabled={loading || !email || !password}
+              >
+                {loading ? "Creando cuenta..." : "Crear cuenta"}
+                <UserPlus className="h-4 w-4 ml-2" />
+              </Button>
+            )}
+
+            <div className="text-center">
+              <button
+                onClick={() => setModo(modo === "login" ? "register" : "login")}
+                className="text-xs text-primary hover:underline"
+              >
+                {modo === "login"
+                  ? "¿No tienes cuenta? Regístrate"
+                  : "¿Ya tienes cuenta? Inicia sesión"}
+              </button>
+            </div>
 
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
@@ -122,7 +236,7 @@ export function LoginScreen() {
               {usuariosDemo.map((u) => (
                 <button
                   key={u.id}
-                  onClick={() => login(u)}
+                  onClick={() => loginDemo(u)}
                   disabled={loading}
                   className="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors text-left"
                 >
@@ -142,15 +256,55 @@ export function LoginScreen() {
                   </Badge>
                 </button>
               ))}
-            </div>
+</div>
+           </CardContent>
+         </Card>
+       </div>
+     </div>
+   );
 
-            <p className="text-[11px] text-center text-muted-foreground pt-2">
-              Demo: haz click en cualquier negocio para entrar instantáneamente.
-              En producción esto requeriría credenciales verificadas.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
-}
+   // Modal Recuperar Contraseña
+   if (forgotModalOpen) {
+     return (
+       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+         <div className="w-full max-w-md bg-card rounded-xl shadow-xl p-6 space-y-4">
+           <div className="flex items-center justify-between">
+             <h3 className="text-lg font-semibold">Recuperar contraseña</h3>
+             <button
+               onClick={() => { setForgotModalOpen(false); setForgotEmail(""); }}
+               className="text-muted-foreground hover:text-foreground"
+             >
+               <X className="h-5 w-5" />
+             </button>
+           </div>
+           <AlertCircle className="h-10 w-10 text-primary mx-auto" />
+           <p className="text-center text-sm text-muted-foreground">
+             Ingresa tu email y te enviaremos un enlace para restablecer tu contraseña.
+           </p>
+           <div className="space-y-2">
+             <Label htmlFor="forgotEmail">Correo electrónico</Label>
+             <div className="relative">
+               <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+               <Input
+                 id="forgotEmail"
+                 type="email"
+                 placeholder="tu@negocio.com"
+                 className="pl-9"
+                 value={forgotEmail}
+                 onChange={(e) => setForgotEmail(e.target.value)}
+                 autoFocus
+               />
+             </div>
+           </div>
+           <Button
+             className="w-full"
+             onClick={handleForgotPassword}
+             disabled={forgotLoading || !forgotEmail}
+           >
+             {forgotLoading ? "Enviando..." : "Enviar enlace de recuperación"}
+           </Button>
+         </div>
+       </div>
+     );
+   }
+ }

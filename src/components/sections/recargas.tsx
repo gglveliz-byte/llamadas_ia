@@ -34,8 +34,8 @@ import { cn } from "@/lib/utils";
 const TX_LABEL: Record<string, { label: string; color: string }> = {
   recarga: { label: "Recarga", color: "text-emerald-600" },
   debito: { label: "Débito", color: "text-red-600" },
-  ajuste_admin: { label: "Ajuste admin", color: "text-amber-600" },
-  trial: { label: "Trial", color: "text-blue-600" },
+  ajuste_admin: { label: "Ajuste de saldo", color: "text-amber-600" },
+  trial: { label: "Crédito de bienvenida", color: "text-blue-600" },
 };
 
 export function RecargasSection() {
@@ -67,7 +67,7 @@ export function RecargasSection() {
           `/api/wallet/transactions?userId=${usuario.id}&limit=100`
         ),
       ]);
-      setSaldo(w.wallet.saldo);
+      setSaldo(Number(w.wallet.saldo));
       setTotalRecargado(w.totalRecargado);
       setTotalDebitado(w.totalDebitado);
       setPorcentaje(w.porcentajeSaldo);
@@ -82,6 +82,17 @@ export function RecargasSection() {
     cargar();
   }, [cargar]);
 
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("recarga") === "exito") {
+      params.delete("recarga");
+      window.history.replaceState({}, "", `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}`);
+      toast.success("Pago recibido, acreditando saldo…");
+      refreshWallet();
+      cargar();
+    }
+  }, [cargar, refreshWallet]);
+
   const iniciarRecarga = (p: RechargePackage) => {
     setPaqueteSel(p);
     setCheckoutOpen(true);
@@ -91,20 +102,13 @@ export function RecargasSection() {
     if (!usuario || !paqueteSel) return;
     setProcessing(true);
     try {
-      // Simular webhook Whop payment.succeeded
-      await ApiClient.post("/api/wallet/recharge", {
-        userId: usuario.id,
-        packageId: paqueteSel.id,
-        whopPaymentId: "whop_demo_" + Date.now(),
-        amountAfterFees: paqueteSel.montoRecarga,
-      });
-      toast.success(`¡Recarga exitosa! +$${paqueteSel.saldoOtorgado.toFixed(2)}`);
-      setCheckoutOpen(false);
-      refreshWallet();
-      cargar();
+      const { checkoutUrl } = await ApiClient.post<{ checkoutUrl: string }>(
+        "/api/whop/checkout",
+        { packageId: paqueteSel.id }
+      );
+      window.location.href = checkoutUrl;
     } catch (e) {
       toast.error("Error: " + (e as Error).message);
-    } finally {
       setProcessing(false);
     }
   };
@@ -203,8 +207,8 @@ export function RecargasSection() {
             Paquetes de recarga
           </CardTitle>
           <CardDescription>
-            Los pagos se procesan de forma segura a través de Whop.com. El saldo se acredita
-            automáticamente tras la confirmación del pago.
+            Los pagos se procesan de forma segura y el saldo se acredita automáticamente
+            tras la confirmación del pago.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -292,7 +296,7 @@ export function RecargasSection() {
                         <div className="text-xs text-muted-foreground">
                           {format(new Date(tx.createdAt), "d MMM yyyy, HH:mm", { locale: es })}
                           {tx.callSid && ` · ${tx.callSid.slice(0, 14)}...`}
-                          {tx.whopPaymentId && ` · Whop: ${tx.whopPaymentId.slice(-8)}`}
+                          {tx.whopPaymentId && ` · Ref: ${tx.whopPaymentId.slice(-8)}`}
                         </div>
                       </div>
                       <div className="text-right">
@@ -321,7 +325,7 @@ export function RecargasSection() {
               Confirmar recarga
             </DialogTitle>
             <DialogDescription>
-              Serás redirigido a Whop.com para completar el pago de forma segura.
+              Serás redirigido a un portal de pago seguro para completar la compra.
             </DialogDescription>
           </DialogHeader>
           {paqueteSel && (
@@ -345,10 +349,6 @@ export function RecargasSection() {
                   <span className="text-sm text-muted-foreground">Tarifa/min</span>
                   <span className="text-sm">${paqueteSel.precioPorMinuto.toFixed(3)}</span>
                 </div>
-              </div>
-              <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 p-3 text-xs text-blue-700 dark:text-blue-300">
-                <CheckCircle2 className="h-4 w-4 inline mr-1" />
-                Demo: al confirmar se simula el webhook <code className="font-mono">payment.succeeded</code> de Whop y se acredita el saldo al instante.
               </div>
             </div>
           )}

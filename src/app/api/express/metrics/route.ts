@@ -11,12 +11,14 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
+  const expressUrl = process.env.DOMINIO_EXPRESS || "http://localhost:3001";
   try {
-    const upstream = await fetch("http://localhost:3001/internal/metrics", {
+    const upstream = await fetch(`${expressUrl}/internal/metrics`, {
       headers: {
         "x-internal-api-key": process.env.INTERNAL_API_KEY || "dev",
         "x-user-id": "admin",
       },
+      signal: AbortSignal.timeout(5000),
     });
 
     if (!upstream.ok) {

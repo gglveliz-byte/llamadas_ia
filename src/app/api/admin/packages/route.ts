@@ -1,5 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { adminPackageCreateSchema, adminPackageUpdateSchema } from "@/lib/validators/schemas";
+import { validate } from "@/lib/validators/helper";
+import { Prisma } from "@prisma/client";
+
+type Paquete = Prisma.RechargePackageGetPayload<Record<string, never>>;
+
+function serializarPaquete(p: Paquete) {
+  return {
+    ...p,
+    montoRecarga: p.montoRecarga.toNumber(),
+    saldoOtorgado: p.saldoOtorgado.toNumber(),
+    precioPorMinuto: p.precioPorMinuto.toNumber(),
+    precioPorSegundo: p.precioPorSegundo?.toNumber() ?? null,
+  };
+}
 
 /**
  * GET /api/admin/packages
@@ -9,7 +24,7 @@ export async function GET() {
   const paquetes = await db.rechargePackage.findMany({
     orderBy: { montoRecarga: "asc" },
   });
-  return NextResponse.json({ paquetes });
+  return NextResponse.json({ paquetes: paquetes.map(serializarPaquete) });
 }
 
 /**
@@ -19,17 +34,20 @@ export async function GET() {
  */
 export async function POST(req: NextRequest) {
   const body = await req.json();
+  const val = validate(adminPackageCreateSchema, body);
+  if (val.error) return val.error;
+  const { nombre, montoRecarga, saldoOtorgado, precioPorMinuto, activo } = val.data!;
   const paquete = await db.rechargePackage.create({
     data: {
-      nombre: body.nombre,
-      montoRecarga: parseFloat(body.montoRecarga),
-      saldoOtorgado: parseFloat(body.saldoOtorgado),
-      precioPorMinuto: parseFloat(body.precioPorMinuto),
-      precioPorSegundo: parseFloat(body.precioPorMinuto) / 60,
-      activo: body.activo ?? true,
+      nombre,
+      montoRecarga,
+      saldoOtorgado,
+      precioPorMinuto,
+      precioPorSegundo: precioPorMinuto / 60,
+      activo,
     },
   });
-  return NextResponse.json({ paquete });
+  return NextResponse.json({ paquete: serializarPaquete(paquete) });
 }
 
 /**
@@ -38,20 +56,20 @@ export async function POST(req: NextRequest) {
  * Body: { id, ...campos }
  */
 export async function PATCH(req: NextRequest) {
-  const { id, ...updates } = await req.json();
+  const body = await req.json();
+  const val = validate(adminPackageUpdateSchema, body);
+  if (val.error) return val.error;
+  const { id, ...updates } = val.data!;
   const data: Record<string, unknown> = { ...updates };
-  if (updates.montoRecarga) data.montoRecarga = parseFloat(updates.montoRecarga);
-  if (updates.saldoOtorgado) data.saldoOtorgado = parseFloat(updates.saldoOtorgado);
-  if (updates.precioPorMinuto) {
-    data.precioPorMinuto = parseFloat(updates.precioPorMinuto);
-    data.precioPorSegundo = parseFloat(updates.precioPorMinuto) / 60;
+  if (updates.precioPorMinuto !== undefined) {
+    data.precioPorSegundo = updates.precioPorMinuto / 60;
   }
 
   const paquete = await db.rechargePackage.update({
     where: { id: parseInt(id) },
     data,
   });
-  return NextResponse.json({ paquete });
+  return NextResponse.json({ paquete: serializarPaquete(paquete) });
 }
 
 /**

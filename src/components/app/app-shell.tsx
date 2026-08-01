@@ -16,6 +16,7 @@ import { AdminTarifasSection } from "@/components/sections/admin-tarifas";
 import { AdminMetricasSection } from "@/components/sections/admin-metricas";
 import { AdminFlujoSection } from "@/components/sections/admin-flujo";
 import { AdminConfigSection } from "@/components/sections/admin-config";
+import { AdminRankingSection } from "@/components/sections/admin-ranking";
 import {
   Sheet,
   SheetContent,
@@ -57,7 +58,7 @@ export function AppShell() {
 
   // Refrescar wallet cuando cambia el usuario, sección o walletVersion
   React.useEffect(() => {
-    if (!usuario) return;
+    if (!usuario || usuario.role !== "cliente") return;
     ApiClient.get<{
       wallet: { saldo: number } | null;
       porcentajeSaldo: number;
@@ -125,17 +126,18 @@ export function AppShell() {
   }
 
   const renderSeccion = () => {
+    const esCliente = usuario.role === "cliente";
     switch (seccion) {
       case "dashboard":
-        return <DashboardSection />;
+        return esCliente ? <DashboardSection /> : <NoAccess />;
       case "citas":
-        return <CitasSection />;
+        return esCliente ? <CitasSection /> : <NoAccess />;
       case "recargas":
-        return <RecargasSection />;
+        return esCliente ? <RecargasSection /> : <NoAccess />;
       case "configuracion":
-        return <ConfiguracionSection />;
+        return esCliente ? <ConfiguracionSection /> : <NoAccess />;
       case "simulador":
-        return <SimuladorSection />;
+        return esCliente ? <SimuladorSection /> : <NoAccess />;
       case "admin-clientes":
         return usuario.role === "admin" ? <AdminClientesSection /> : <NoAccess />;
       case "admin-tarifas":
@@ -144,10 +146,12 @@ export function AppShell() {
         return usuario.role === "admin" ? <AdminMetricasSection /> : <NoAccess />;
       case "admin-flujo":
         return usuario.role === "admin" ? <AdminFlujoSection /> : <NoAccess />;
+      case "admin-ranking":
+        return usuario.role === "admin" ? <AdminRankingSection /> : <NoAccess />;
       case "admin-config":
         return usuario.role === "admin" ? <AdminConfigSection /> : <NoAccess />;
       default:
-        return <DashboardSection />;
+        return esCliente ? <DashboardSection /> : <AdminMetricasSection />;
     }
   };
 
@@ -183,7 +187,12 @@ export function AppShell() {
 
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Topbar onMenuClick={() => setSidebarOpen(true)} sseConectado={conectado} />
+        <Topbar
+          onMenuClick={() => setSidebarOpen(true)}
+          sseConectado={conectado}
+          walletSaldo={walletSaldo}
+          porcentajeSaldo={porcentajeSaldo}
+        />
         <main className="flex-1 overflow-y-auto wa-scroll p-4 lg:p-6 chat-bg">
           {renderSeccion()}
         </main>

@@ -1,22 +1,59 @@
 "use client";
 
-/**
- * Cliente API unificado para el frontend VozIA.
- * Enruta todas las llamadas a /api/* del propio Next.js.
- */
+import { useAppStore } from "./store";
 
 export class ApiClient {
+  private static getTokens(): { token: string | null; refreshToken: string | null } {
+    if (typeof window === "undefined") return { token: null, refreshToken: null };
+    const state = useAppStore.getState();
+    return { token: state.token, refreshToken: state.refreshToken };
+  }
+
   private static async request<T>(
     path: string,
     options: RequestInit = {}
   ): Promise<T> {
+    const { token } = this.getTokens();
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...(options.headers as Record<string, string> || {}),
+    };
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
     const res = await fetch(path, {
       ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...(options.headers || {}),
-      },
+      headers,
     });
+
+    if (res.status === 401) {
+      const { refreshToken } = this.getTokens();
+      if (refreshToken) {
+        try {
+          const refreshRes = await fetch("/api/auth/refresh", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ refreshToken }),
+          });
+          if (refreshRes.ok) {
+            const data = await refreshRes.json();
+            useAppStore.getState().setTokens(data.token, data.refreshToken);
+            headers["Authorization"] = `Bearer ${data.token}`;
+            const retryRes = await fetch(path, { ...options, headers });
+            if (!retryRes.ok) {
+              const errBody = await retryRes.json().catch(() => ({ error: retryRes.statusText }));
+              throw new Error(errBody.error || `HTTP ${retryRes.status}`);
+            }
+            return retryRes.json() as Promise<T>;
+          }
+        } catch {
+          useAppStore.getState().logout();
+          throw new Error("Sesión expirada. Inicia sesión de nuevo.");
+        }
+      }
+    }
+
     if (!res.ok) {
       const errBody = await res.json().catch(() => ({ error: res.statusText }));
       throw new Error(errBody.error || `HTTP ${res.status}`);
@@ -47,7 +84,6 @@ export class ApiClient {
   }
 }
 
-// Tipos compartidos
 export interface Usuario {
   id: string;
   email: string;
@@ -56,7 +92,9 @@ export interface Usuario {
   businessPhone: string | null;
   isVerified: boolean;
   isSuspended: boolean;
-  twilioSubaccountSid: string | null;
+  telnyxChildAccountId: string | null;
+  telnyxProvisioningStatus?: string;
+  telnyxProvisioningError?: string | null;
 }
 
 export interface BusinessSettings {
@@ -188,7 +226,7 @@ export interface MetricasAdmin {
   };
   rateLimits: {
     gemini: { remaining: number; limit: number; resetAt: string };
-    twilio: { concurrentCalls: number; maxConcurrent: number };
+    telnyx: { concurrentCalls: number; maxConcurrent: number };
     whop: { lastWebhook: string; status: string };
   };
   umbrales: { cpu: number; ram: number; latencia: number };

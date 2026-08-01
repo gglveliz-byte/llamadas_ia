@@ -12,6 +12,7 @@ import {
   Trash2,
   Globe,
   Check,
+  AlertTriangle,
 } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import { ApiClient, type BusinessSettings } from "@/lib/api";
@@ -319,20 +320,20 @@ export function ConfiguracionSection() {
         </Card>
       </TabsContent>
 
-      {/* Contexto / RAG */}
+      {/* Contexto */}
       <TabsContent value="contexto">
         <Card className="panel-wa">
           <CardHeader>
-            <CardTitle className="text-base">Contexto del negocio (RAG)</CardTitle>
+            <CardTitle className="text-base">Información del negocio</CardTitle>
             <CardDescription>
-              Este texto se inyecta en el system prompt de Gemini al inicio de cada llamada.
+              Este texto es lo que tu asistente de voz conoce sobre tu negocio en cada llamada.
               Define cómo la IA representa tu negocio.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label>Contexto / Prompt del sistema</Label>
+                <Label>Información del negocio</Label>
                 <span className="text-xs text-muted-foreground">
                   {settings.systemPromptContext.length} caracteres
                 </span>
@@ -368,7 +369,7 @@ export function ConfiguracionSection() {
 
             <Button onClick={() => guardar({ systemPromptContext: settings.systemPromptContext })} disabled={saving}>
               <Save className="h-4 w-4 mr-2" />
-              {saving ? "Guardando..." : "Guardar contexto"}
+              {saving ? "Guardando..." : "Guardar cambios"}
             </Button>
           </CardContent>
         </Card>
@@ -380,10 +381,10 @@ export function ConfiguracionSection() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="text-base">Números telefónicos</CardTitle>
-                <CardDescription>
-                  Números comprados a través de Twilio y asignados a tu subcuenta.
-                </CardDescription>
+            <CardTitle className="text-base">Números telefónicos</CardTitle>
+            <CardDescription>
+              Los números con los que tu negocio recibe llamadas. Compra el que más te convenga.
+            </CardDescription>
               </div>
               <Button onClick={comprarNumero} size="sm">
                 <Plus className="h-4 w-4 mr-1" />
@@ -391,6 +392,15 @@ export function ConfiguracionSection() {
               </Button>
             </div>
           </CardHeader>
+          {usuario?.telnyxProvisioningStatus === "pendiente" && (
+            <div className="px-6 py-3 border-b border-amber-500/30 bg-amber-500/10 text-xs text-amber-700 dark:text-amber-400 flex items-center gap-2">
+              <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
+              <span>
+                Tu telefonía está en configuración (se está creando tu cuenta en Telnyx).
+                Si no puedes comprar números, vuelve a intentarlo en unos minutos.
+              </span>
+            </div>
+          )}
           <CardContent className="p-0">
             <ScrollArea className="h-80">
               <div className="divide-y divide-border">
@@ -504,7 +514,7 @@ export function ConfiguracionSection() {
           <CardHeader>
             <CardTitle className="text-base">Grabación de llamadas</CardTitle>
             <CardDescription>
-              Las grabaciones se almacenan en Cloudflare R2 con URL firmada (1h expira).
+              Las grabaciones de tus llamadas se guardan de forma segura.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">

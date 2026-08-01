@@ -44,9 +44,6 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     settings: {
       ...settings,
-      businessHours: JSON.parse(settings.businessHours),
-      formFields: JSON.parse(settings.formFields),
-      recursos: JSON.parse(settings.recursos),
     },
   });
 }
@@ -61,17 +58,7 @@ export async function PATCH(req: NextRequest) {
   const { userId, ...updates } = body;
   if (!userId) return NextResponse.json({ error: "userId requerido" }, { status: 400 });
 
-  // Serializar JSONs
   const data: Record<string, unknown> = { ...updates };
-  if (updates.businessHours && typeof updates.businessHours === "object") {
-    data.businessHours = JSON.stringify(updates.businessHours);
-  }
-  if (updates.formFields && typeof updates.formFields === "object") {
-    data.formFields = JSON.stringify(updates.formFields);
-  }
-  if (updates.recursos && typeof updates.recursos === "object") {
-    data.recursos = JSON.stringify(updates.recursos);
-  }
 
   // Verificar si existe; si no, crear
   const existe = await db.businessSettings.findUnique({ where: { userId } });

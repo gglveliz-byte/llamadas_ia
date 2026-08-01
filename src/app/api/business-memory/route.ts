@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { businessMemorySchema } from "@/lib/validators/schemas";
+import { validate } from "@/lib/validators/helper";
 
 /**
  * GET /api/business-memory?userId=...
@@ -32,10 +34,10 @@ export async function GET(req: NextRequest) {
  * - 'reinterview': archiva el actual y crea uno nuevo
  */
 export async function POST(req: NextRequest) {
-  const { userId, rawContext, action = "save" } = await req.json();
-  if (!userId || !rawContext) {
-    return NextResponse.json({ error: "Faltan campos" }, { status: 400 });
-  }
+  const body = await req.json();
+  const val = validate(businessMemorySchema, body);
+  if (val.error) return val.error;
+  const { userId, rawContext, action } = val.data!;
 
   if (action === "reinterview") {
     // Archivar la versión actual

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { adminConfigUpdateSchema } from "@/lib/validators/schemas";
+import { validate } from "@/lib/validators/helper";
 
 /**
  * GET /api/admin/config
@@ -18,8 +20,10 @@ export async function GET() {
  * Body: { clave, valor }
  */
 export async function PATCH(req: NextRequest) {
-  const { clave, valor } = await req.json();
-  if (!clave) return NextResponse.json({ error: "clave requerida" }, { status: 400 });
+  const body = await req.json();
+  const val = validate(adminConfigUpdateSchema, body);
+  if (val.error) return val.error;
+  const { clave, valor } = val.data!;
 
   const config = await db.adminConfig.upsert({
     where: { clave },

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { adminClientActionSchema, adminAdjustBalanceSchema } from "@/lib/validators/schemas";
+import { validate } from "@/lib/validators/helper";
 
 /**
  * GET /api/admin/clients
@@ -40,13 +42,13 @@ export async function GET() {
       return {
         id: c.id,
         email: c.email,
-        businessName: c.businessName ?? c.settings?.businessName ?? "Sin nombre",
+        businessName: c.businessName ?? "Sin nombre",
         isSuspended: c.isSuspended,
         isVerified: c.isVerified,
         createdAt: c.createdAt,
-        saldo: c.wallet?.saldo ?? 0,
-        totalDebitado: Math.abs(debitos._sum.monto ?? 0),
-        totalRecargado: recargas._sum.monto ?? 0,
+        saldo: c.wallet?.saldo?.toNumber() ?? 0,
+        totalDebitado: Math.abs(debitos._sum.monto?.toNumber() ?? 0),
+        totalRecargado: recargas._sum.monto?.toNumber() ?? 0,
         minutosLlamada: Math.floor((minutosLlamada._sum.duracionSegundos ?? 0) / 60),
         totalLlamadas: c._count.metrics,
         totalCitas: c._count.appointments,
@@ -66,8 +68,10 @@ export async function GET() {
  * Body: { clientId, action: 'suspend' | 'activate' | 'delete' }
  */
 export async function PATCH(req: NextRequest) {
-  const { clientId, action } = await req.json();
-  if (!clientId || !action) return NextResponse.json({ error: "Faltan campos" }, { status: 400 });
+  const body = await req.json();
+  const val = validate(adminClientActionSchema, body);
+  if (val.error) return val.error;
+  const { clientId, action } = val.data!;
 
   if (action === "suspend") {
     await db.user.update({ where: { id: clientId }, data: { isSuspended: true } });
@@ -88,15 +92,15 @@ export async function PATCH(req: NextRequest) {
  * Body: { clientId, monto, descripcion }
  */
 export async function POST(req: NextRequest) {
-  const { clientId, monto, descripcion } = await req.json();
-  if (!clientId || typeof monto !== "number") {
-    return NextResponse.json({ error: "Faltan campos" }, { status: 400 });
-  }
+  const body = await req.json();
+  const val = validate(adminAdjustBalanceSchema, body);
+  if (val.error) return val.error;
+  const { clientId, monto, descripcion } = val.data!;
 
   const wallet = await db.wallet.findUnique({ where: { userId: clientId } });
   if (!wallet) return NextResponse.json({ error: "Wallet no encontrada" }, { status: 404 });
 
-  const saldoAnterior = wallet.saldo;
+  const saldoAnterior = wallet.saldo.toNumber();
   const saldoNuevo = saldoAnterior + monto;
 
   await db.wallet.update({

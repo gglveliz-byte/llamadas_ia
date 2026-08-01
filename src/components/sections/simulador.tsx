@@ -11,9 +11,12 @@ import {
   MessageSquare,
   Sparkles,
   Info,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import { ApiClient } from "@/lib/api";
+import { MicButton } from "@/components/voice/MicButton";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -28,34 +31,19 @@ interface Mensaje {
   ts: number;
 }
 
-const FRASES_INICIALES: Array<{ rol: "ai"; texto: string }> = [
-  {
-    rol: "ai",
-    texto: "Hola, soy tu entrevistador de voz. Voy a hacerte algunas preguntas para entender tu negocio. Cuéntame, ¿qué tipo de negocio tienes?",
-  },
-];
-
-const RESPUESTAS_IA = [
-  "Interesante. ¿Qué servicios principales ofreces y a qué precio?",
-  "Perfecto. ¿Cuál es tu horario de atención?",
-  "¿Tienes algún recurso específico que deba gestionar? Por ejemplo: sillas, doctores, habitaciones.",
-  "¿Hay alguna regla o política importante que deba conocer? Por ejemplo: cancelaciones, pagos, mascotas.",
-  "¿En qué zona horaria y ciudad estás ubicado?",
-  "¿Algo más que deba saber para representar bien tu negocio? Tómame los datos de contacto del cliente que necesitas pedir.",
-  "Excelente. Te doy un resumen de lo que tengo hasta ahora. ¿Está completo o falta algo?",
-];
-
 export function SimuladorSection() {
   const { usuario } = useAppStore();
   const [grabando, setGrabando] = React.useState(false);
-  const [mensajes, setMensajes] = React.useState<Mensaje[]>(FRASES_INICIALES);
+  const [conectado, setConectado] = React.useState(false);
+  const [mensajes, setMensajes] = React.useState<Mensaje[]>([]);
   const [contextoExtraido, setContextoExtraido] = React.useState("");
   const [guardando, setGuardando] = React.useState(false);
   const [timer, setTimer] = React.useState(0);
+  const wsRef = React.useRef<WebSocket | null>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
-  const countdownRef = React.useRef<NodeJS.Timeout | null>(null);
+  const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const wsUrlRef = React.useRef("");
 
-  // Cargar contexto actual si existe
   React.useEffect(() => {
     if (!usuario) return;
     ApiClient.get<{ memoria: { rawContext: string } | null }>(
@@ -67,96 +55,90 @@ export function SimuladorSection() {
     });
   }, [usuario]);
 
-  // Auto-scroll
   React.useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [mensajes]);
 
-  // Timer
   React.useEffect(() => {
-    if (!grabando) return;
-    const id = setInterval(() => setTimer((t) => t + 1), 1000);
-    return () => clearInterval(id);
+    if (!grabando) {
+      if (timerRef.current) clearInterval(timerRef.current);
+      return;
+    }
+    timerRef.current = setInterval(() => setTimer((t) => t + 1), 1000);
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
   }, [grabando]);
 
-  const iniciarGrabacion = async () => {
-    setGrabando(true);
-    setTimer(0);
-    setMensajes(FRASES_INICIALES);
-    toast.info("🎙️ Entrevista iniciada. La IA te guiará para extraer el contexto de tu negocio.");
+  const conectarWS = () => {
+    if (!usuario) return null;
+    const { token } = useAppStore.getState();
+    const protocolo = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const host = process.env.NEXT_PUBLIC_WS_URL!;
+    const url = `${host}/stream/sim?user_id=${usuario.id}&token=${token || "dev"}`;
+    wsUrlRef.current = url;
 
-    // Simular conversación: cada 4s la IA pregunta algo nuevo
-    let paso = 0;
-    countdownRef.current = setInterval(() => {
-      if (paso < RESPUESTAS_IA.length) {
-        // Simular respuesta del usuario
-        const respuestasUsuario = [
-          "Tengo una barbería en Polanco, CDMX.",
-          "Corte clásico $200, fade $250, barba $120.",
-          "Lunes a viernes de 9 a 19, sábados de 9 a 15.",
-          "Tengo 3 sillas de barbero.",
-          "Cancelaciones con 2h de anticipación. No mascotas.",
-          "Estoy en zona horaria de Ciudad de México.",
-          "Pido nombre y teléfono al cliente. Aceptamos efectivo y tarjeta.",
-          "Sí, está completo.",
-        ];
-        if (paso < respuestasUsuario.length) {
-          setMensajes((prev) => [
-            ...prev,
-            { rol: "user", texto: respuestasUsuario[paso], ts: Date.now() },
-          ]);
+    const ws = new WebSocket(url);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      setConectado(true);
+      ws.send(JSON.stringify({ tipo: "iniciar" }));
+    };
+
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.tipo === "texto") {
+          setMensajes((prev) => [...prev, { rol: "ai", texto: msg.texto, ts: Date.now() }]);
         }
-        setTimeout(() => {
-          setMensajes((prev) => [
-            ...prev,
-            { rol: "ai", texto: RESPUESTAS_IA[paso], ts: Date.now() },
-          ]);
-        }, 800);
-        paso++;
-      } else {
-        // Generar contexto extraído
-        const contexto = `Barbería en Polanco, CDMX. Zona horaria: America/Mexico_City.
-
-## SERVICIOS Y PRECIOS
-- Corte clásico: $200
-- Fade: $250
-- Barba: $120
-- Diseño: $80 (mencionado en entrevista previa)
-
-## HORARIOS
-- Lunes a viernes: 9:00 - 19:00
-- Sábados: 9:00 - 15:00
-- Domingos: cerrado
-
-## RECURSOS
-- 3 sillas de barbero: Silla 1, Silla 2, Silla 3
-
-## POLÍTICAS
-- Cancelaciones con 2 horas de anticipación
-- No se permiten mascotas
-- Aceptamos efectivo y tarjeta
-
-## DATOS DEL CLIENTE A RECOPILAR
-- Nombre completo (obligatorio)
-- Teléfono (opcional)
-- Notas adicionales (opcional)
-
-## TONO
-Amable, profesional, conciso. Saludo inicial: "¡Hola! Gracias por llamar a [nombre barbería]."`;
-        setContextoExtraido(contexto);
-        detenerGrabacion();
-        toast.success("✅ Contexto extraído. Revísalo y guarda.");
+      } catch {
+        // ignore
       }
-    }, 4000);
+    };
+
+    ws.onclose = () => {
+      setConectado(false);
+      setGrabando(false);
+    };
+
+    ws.onerror = () => {
+      setConectado(false);
+      toast.error("Error de conexión con el servidor de voz");
+    };
+
+    return ws;
+  };
+
+  const iniciarGrabacion = () => {
+    setMensajes([]);
+    setTimer(0);
+    setGrabando(true);
+    const ws = conectarWS();
+    if (!ws) {
+      toast.error("No hay sesión activa");
+      setGrabando(false);
+      return;
+    }
+    toast.info("Micrófono activo. La IA te guiará en la entrevista.");
   };
 
   const detenerGrabacion = () => {
+    if (wsRef.current) {
+      wsRef.current.send(JSON.stringify({ tipo: "detener" }));
+      wsRef.current.close();
+      wsRef.current = null;
+    }
     setGrabando(false);
-    if (countdownRef.current) {
-      clearInterval(countdownRef.current);
-      countdownRef.current = null;
+    setConectado(false);
+    if (timerRef.current) clearInterval(timerRef.current);
+  };
+
+  const enviarAudio = (base64: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ tipo: "audio", base64, mimeType: "audio/wav" }));
     }
   };
 
@@ -169,7 +151,7 @@ Amable, profesional, conciso. Saludo inicial: "¡Hola! Gracias por llamar a [nom
         rawContext: contextoExtraido,
         action: "save",
       });
-      toast.success("Contexto guardado y embebido (RAG actualizado)");
+      toast.success("Información de tu negocio guardada correctamente");
     } catch (e) {
       toast.error("Error: " + (e as Error).message);
     } finally {
@@ -186,7 +168,7 @@ Amable, profesional, conciso. Saludo inicial: "¡Hola! Gracias por llamar a [nom
         rawContext: contextoExtraido,
         action: "reinterview",
       });
-      setMensajes(FRASES_INICIALES);
+      setMensajes([]);
       setContextoExtraido("");
       setTimer(0);
       toast.success("Versión archivada. Lista para nueva entrevista.");
@@ -203,7 +185,6 @@ Amable, profesional, conciso. Saludo inicial: "¡Hola! Gracias por llamar a [nom
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {/* Panel izquierdo: Conversación */}
       <Card className="panel-wa flex flex-col h-[calc(100vh-12rem)]">
         <CardHeader className="pb-3 border-b border-border">
           <div className="flex items-center justify-between">
@@ -223,16 +204,40 @@ Amable, profesional, conciso. Saludo inicial: "¡Hola! Gracias por llamar a [nom
                 )}
               </CardDescription>
             </div>
-            {grabando && (
-              <Button variant="outline" size="sm" onClick={detenerGrabacion}>
-                <Square className="h-3 w-3 mr-1" /> Detener
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              {conectado ? (
+                <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-500/30">
+                  <Wifi className="h-3 w-3 mr-1" /> Conectado
+                </Badge>
+              ) : grabando ? (
+                <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-500/30">
+                  <WifiOff className="h-3 w-3 mr-1" /> Reconectando...
+                </Badge>
+              ) : null}
+              {grabando && (
+                <Button variant="outline" size="sm" onClick={detenerGrabacion}>
+                  <Square className="h-3 w-3 mr-1" /> Detener
+                </Button>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent className="flex-1 p-0 overflow-hidden">
           <ScrollArea className="h-full" ref={scrollRef as never}>
             <div className="p-4 space-y-3">
+              {mensajes.length === 0 && !grabando && (
+                <div className="h-full flex flex-col items-center justify-center text-center space-y-3 p-6">
+                  <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
+                    <Sparkles className="h-8 w-8 text-primary" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold">Presiona el micrófono para empezar</p>
+                    <p className="text-xs text-muted-foreground max-w-xs">
+                      La IA te entrevistará para conocer tu negocio. Habla naturalmente.
+                    </p>
+                  </div>
+                </div>
+              )}
               {mensajes.map((m, i) => (
                 <div
                   key={i}
@@ -269,55 +274,34 @@ Amable, profesional, conciso. Saludo inicial: "¡Hola! Gracias por llamar a [nom
           </ScrollArea>
         </CardContent>
 
-        {/* Botón micrófono fijo */}
         <div className="border-t border-border p-4 flex flex-col items-center gap-3">
-          <button
-            onClick={grabando ? detenerGrabacion : iniciarGrabacion}
-            className={cn(
-              "relative h-20 w-20 rounded-full flex items-center justify-center transition-all",
-              grabando
-                ? "bg-red-500 text-white shadow-lg shadow-red-500/30"
-                : "bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/30"
-            )}
-          >
-            {grabando ? (
-              <>
-                {/* Ondas animadas */}
-                <div className="absolute inset-0 rounded-full border-2 border-red-300 animate-ping" />
-                <div className="flex items-end gap-1 h-8">
-                  {[0, 1, 2, 3, 4].map((i) => (
-                    <span
-                      key={i}
-                      className="wa-wave-bar w-1 bg-white rounded-full"
-                      style={{
-                        height: "100%",
-                        animationDelay: `${i * 100}ms`,
-                      }}
-                    />
-                  ))}
-                </div>
-              </>
-            ) : (
+          {grabando ? (
+            <MicButton
+              onAudioChunk={enviarAudio}
+              onStart={() => {}}
+              onStop={detenerGrabacion}
+            />
+          ) : (
+            <button
+              onClick={iniciarGrabacion}
+              className="relative h-20 w-20 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/30 flex items-center justify-center transition-all"
+            >
               <Mic className="h-8 w-8" />
-            )}
-          </button>
-          <span className="text-xs text-muted-foreground">
-            {grabando ? "Hablando... click para detener" : "Click para iniciar entrevista"}
-          </span>
+            </button>
+          )}
         </div>
       </Card>
 
-      {/* Panel derecho: Contexto extraído */}
       <Card className="panel-wa flex flex-col h-[calc(100vh-12rem)]">
         <CardHeader className="pb-3 border-b border-border">
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="text-base flex items-center gap-2">
                 <Brain className="h-4 w-4 text-primary" />
-                Contexto Extraído (RAG)
+                Información de tu negocio
               </CardTitle>
               <CardDescription className="text-xs mt-1">
-                Editable. Se re-embebe al guardar.
+                La IA la recopila durante la entrevista. Puedes editarla cuando quieras.
               </CardDescription>
             </div>
             <div className="flex gap-2">
@@ -357,34 +341,26 @@ Amable, profesional, conciso. Saludo inicial: "¡Hola! Gracias por llamar a [nom
               />
               <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
                 <span>{contextoExtraido.length} caracteres</span>
-                <Badge variant="outline" className="text-[10px]">
-                  768-dim embedding
-                </Badge>
               </div>
             </>
           )}
         </CardContent>
       </Card>
 
-      {/* Info banner */}
       <Card className="panel-wa lg:col-span-2 bg-blue-500/5 border-blue-500/20">
         <CardContent className="p-4 flex items-start gap-3">
           <Info className="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
           <div className="space-y-1 text-sm">
             <p className="font-semibold text-blue-700 dark:text-blue-300">
-              ¿Cómo funciona el simulador?
+              ¿Cómo funciona?
             </p>
             <p className="text-xs text-muted-foreground">
-              En producción, este componente abre un WebSocket con el backend Express, que a su vez
-              conecta con <strong>Gemini 3.1 Flash Live</strong> para streaming bidireccional de audio.
-              La IA actúa como entrevistadora, hace preguntas para extraer toda la información del
-              negocio, y al confirmar el usuario, llama a la herramienta <code className="font-mono bg-muted px-1 rounded">guardar_contexto</code>{" "}
-              que persiste el texto y genera el embedding 768-dimensional con <code className="font-mono bg-muted px-1 rounded">gemini-embedding-001</code>{" "}
-              para búsquedas RAG al inicio de cada llamada.
+              El asistente de voz te hará una entrevista hablada. Contesta con naturalidad:
+              preguntará por tus servicios, precios y horarios. Al terminar, guarda la
+              información que usará en las llamadas con tus clientes.
             </p>
             <p className="text-xs text-muted-foreground">
-              <strong>Demo:</strong> aquí se simula la conversación con respuestas pre-definidas
-              para mostrar el flujo completo.
+              <strong>Necesitas:</strong> permitir el acceso al micrófono.
             </p>
           </div>
         </CardContent>

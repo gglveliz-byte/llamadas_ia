@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { createAppointmentSchema, updateAppointmentSchema } from "@/lib/validators/schemas";
+import { validate } from "@/lib/validators/helper";
 
 /**
  * GET /api/appointments?userId=...&from=...&to=...
@@ -37,6 +39,8 @@ export async function GET(req: NextRequest) {
  */
 export async function POST(req: NextRequest) {
   const body = await req.json();
+  const val = validate(createAppointmentSchema, body);
+  if (val.error) return val.error;
   const {
     userId,
     customerName,
@@ -47,11 +51,7 @@ export async function POST(req: NextRequest) {
     recursoId,
     notes,
     extraFields,
-  } = body;
-
-  if (!userId || !customerName || !startTime) {
-    return NextResponse.json({ error: "Faltan campos obligatorios" }, { status: 400 });
-  }
+  } = val.data!;
 
   const inicio = new Date(startTime);
   const fin = new Date(inicio.getTime() + durationMinutes * 60000);
@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
       durationMinutes,
       recursoId,
       notes,
-      extraFields: extraFields ? JSON.stringify(extraFields) : null,
+      extraFields: (extraFields ?? null) as never,
     },
   });
 
@@ -115,10 +115,10 @@ export async function POST(req: NextRequest) {
  * Body: { appointmentId, status }
  */
 export async function PATCH(req: NextRequest) {
-  const { appointmentId, status } = await req.json();
-  if (!appointmentId || !status) {
-    return NextResponse.json({ error: "Faltan campos" }, { status: 400 });
-  }
+  const body = await req.json();
+  const val = validate(updateAppointmentSchema, body);
+  if (val.error) return val.error;
+  const { appointmentId, status } = val.data!;
 
   const cita = await db.appointment.update({
     where: { id: appointmentId },

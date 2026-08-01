@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CalendarDays, Plus, Filter } from "lucide-react";
+import { CalendarDays, Plus, Filter, LayoutGrid, CalendarRange, Moon } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import { ApiClient, type Appointment } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,6 +41,8 @@ import {
 import { es } from "date-fns/locale";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { CalendarView } from "@/components/calendar/CalendarView";
+import { NightsView } from "@/components/calendar/NightsView";
 
 const STATUS_COLORS: Record<string, string> = {
   agendado: "bg-emerald-500",
@@ -56,13 +58,36 @@ const STATUS_LABEL: Record<string, string> = {
   cancelado: "Cancelado",
 };
 
+export type VistaCalendario = "lista" | "horas" | "noches";
+
 export function CitasSection() {
   const { usuario } = useAppStore();
   const [citas, setCitas] = React.useState<Appointment[]>([]);
+  const [vista, setVista] = React.useState<VistaCalendario>("lista");
   const [mesActual, setMesActual] = React.useState(new Date());
   const [diaSeleccionado, setDiaSeleccionado] = React.useState<Date | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [filtroEstado, setFiltroEstado] = React.useState<string>("todos");
+  const [recursos, setRecursos] = React.useState<Record<string, string>>({});
+
+  const cargarRecursos = React.useCallback(async () => {
+    try {
+      const data = await ApiClient.get<{
+        settings?: { recursos?: Array<{ id: string; nombre: string }> } | null;
+      }>("/api/session");
+      const mapa: Record<string, string> = {};
+      (data.settings?.recursos ?? []).forEach((r) => {
+        if (r.id) mapa[r.id] = r.nombre;
+      });
+      setRecursos(mapa);
+    } catch {
+      // recursos opcionales
+    }
+  }, []);
+
+  React.useEffect(() => {
+    cargarRecursos();
+  }, [cargarRecursos]);
 
   // Form nueva cita
   const [nuevaOpen, setNuevaOpen] = React.useState(false);
@@ -288,6 +313,43 @@ export function CitasSection() {
         </div>
       </div>
 
+      <div className="flex items-center gap-1 bg-muted/50 rounded-lg p-1 w-fit">
+        <button
+          onClick={() => setVista("lista")}
+          className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition-colors", vista === "lista" ? "bg-background shadow-sm" : "hover:bg-muted")}
+        >
+          <LayoutGrid className="h-3.5 w-3.5 inline mr-1" />
+          Lista
+        </button>
+        <button
+          onClick={() => setVista("horas")}
+          className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition-colors", vista === "horas" ? "bg-background shadow-sm" : "hover:bg-muted")}
+        >
+          <CalendarRange className="h-3.5 w-3.5 inline mr-1" />
+          Horas
+        </button>
+        <button
+          onClick={() => setVista("noches")}
+          className={cn("px-3 py-1.5 text-xs font-medium rounded-md transition-colors", vista === "noches" ? "bg-background shadow-sm" : "hover:bg-muted")}
+        >
+          <Moon className="h-3.5 w-3.5 inline mr-1" />
+          Noches
+        </button>
+      </div>
+
+      {vista === "horas" ? (
+        <Card className="panel-wa">
+          <CardContent className="p-4">
+            <CalendarView appointments={citas} />
+          </CardContent>
+        </Card>
+      ) : vista === "noches" ? (
+        <Card className="panel-wa">
+          <CardContent className="p-4">
+            <NightsView appointments={citas} recursos={recursos} />
+          </CardContent>
+        </Card>
+      ) : (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Calendario */}
         <Card className="panel-wa lg:col-span-2">
@@ -376,7 +438,7 @@ export function CitasSection() {
                           <div className="text-xs text-muted-foreground">
                             {format(new Date(cita.startTime), "HH:mm")}
                             {cita.durationMinutes && ` · ${cita.durationMinutes}min`}
-                            {cita.recursoId && ` · ${cita.recursoId}`}
+                            {cita.recursoId && ` · ${recursos[cita.recursoId] || "Recurso"}`}
                           </div>
                           {cita.customerPhone && (
                             <div className="text-xs text-muted-foreground mt-0.5">
@@ -426,6 +488,7 @@ export function CitasSection() {
           </CardContent>
         </Card>
       </div>
+      )}
     </div>
   );
 }

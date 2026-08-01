@@ -12,6 +12,7 @@ import {
   Tag,
   Activity,
   TrendingUp,
+  Trophy,
   Cog,
   Moon,
   Sun,
@@ -22,6 +23,7 @@ import {
 import { useAppStore, type Seccion } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { WalletBalance } from "@/components/billing/WalletBalance";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -37,19 +39,20 @@ interface SidebarItem {
   id: Seccion;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
-  rol: "cliente" | "admin" | "ambos";
+  rol: "cliente" | "admin";
 }
 
 const NAV_ITEMS: SidebarItem[] = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, rol: "ambos" },
-  { id: "citas", label: "Citas", icon: CalendarDays, rol: "ambos" },
-  { id: "recargas", label: "Recargas", icon: Wallet, rol: "ambos" },
-  { id: "simulador", label: "Simulador de Voz", icon: Mic, rol: "ambos" },
-  { id: "configuracion", label: "Configuración", icon: Settings, rol: "ambos" },
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, rol: "cliente" },
+  { id: "citas", label: "Citas", icon: CalendarDays, rol: "cliente" },
+  { id: "recargas", label: "Recargas", icon: Wallet, rol: "cliente" },
+  { id: "simulador", label: "Simulador de Voz", icon: Mic, rol: "cliente" },
+  { id: "configuracion", label: "Configuración", icon: Settings, rol: "cliente" },
   { id: "admin-clientes", label: "Clientes", icon: Users, rol: "admin" },
   { id: "admin-tarifas", label: "Tarifas", icon: Tag, rol: "admin" },
   { id: "admin-metricas", label: "Métricas", icon: Activity, rol: "admin" },
   { id: "admin-flujo", label: "Flujo de Caja", icon: TrendingUp, rol: "admin" },
+  { id: "admin-ranking", label: "Ranking", icon: Trophy, rol: "admin" },
   { id: "admin-config", label: "Configuración Admin", icon: Cog, rol: "admin" },
 ];
 
@@ -65,16 +68,7 @@ export function Sidebar({ walletSaldo, porcentajeSaldo, onSeccionChange }: Sideb
   const [mounted, setMounted] = React.useState(false);
   React.useEffect(() => setMounted(true), []);
 
-  const items = NAV_ITEMS.filter(
-    (item) => item.rol === "ambos" || item.rol === usuario?.role
-  );
-
-  const colorSaldo =
-    porcentajeSaldo > 50
-      ? "text-emerald-600 dark:text-emerald-400"
-      : porcentajeSaldo > 20
-      ? "text-amber-600 dark:text-amber-400"
-      : "text-red-600 dark:text-red-400";
+  const items = NAV_ITEMS.filter((item) => item.rol === usuario?.role);
 
   const initials = (usuario?.businessName || usuario?.email || "??")
     .split(" ")
@@ -94,33 +88,24 @@ export function Sidebar({ walletSaldo, porcentajeSaldo, onSeccionChange }: Sideb
             VozIA
           </span>
           <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
-            Voice AI SaaS
+            Asistente de voz con IA
           </span>
         </div>
       </div>
 
-      <div className="px-3 py-3 border-b border-sidebar-border">
-        <button
-          onClick={() => {
-            setSeccion("recargas");
-            onSeccionChange?.();
-          }}
-          className="w-full text-left rounded-lg p-3 bg-sidebar-accent/60 hover:bg-sidebar-accent transition-colors"
-        >
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] uppercase text-muted-foreground tracking-wider font-medium">
-              Saldo
-            </span>
-            <Badge variant="outline" className={cn("text-[10px] h-4 px-1", colorSaldo)}>
-              {porcentajeSaldo.toFixed(0)}%
-            </Badge>
-          </div>
-          <div className={cn("text-xl font-bold", colorSaldo)}>
-            ${walletSaldo.toFixed(2)}
-          </div>
-          <div className="text-[10px] text-muted-foreground mt-0.5">USD · Click para recargar</div>
-        </button>
-      </div>
+      {usuario?.role === "cliente" && (
+        <div className="px-3 py-3 border-b border-sidebar-border">
+          <WalletBalance
+            saldo={walletSaldo}
+            porcentaje={porcentajeSaldo}
+            compact
+            onClick={() => {
+              setSeccion("recargas");
+              onSeccionChange?.();
+            }}
+          />
+        </div>
+      )}
 
       <nav className="flex-1 overflow-y-auto wa-scroll px-2 py-3 space-y-0.5">
         {items.map((item) => {
@@ -193,22 +178,35 @@ export function Sidebar({ walletSaldo, porcentajeSaldo, onSeccionChange }: Sideb
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={() => {
-                setSeccion("configuracion");
-                onSeccionChange?.();
-              }}
-            >
-              <Settings className="h-4 w-4 mr-2" /> Configuración
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => {
-                setSeccion("recargas");
-                onSeccionChange?.();
-              }}
-            >
-              <Wallet className="h-4 w-4 mr-2" /> Mi saldo
-            </DropdownMenuItem>
+            {usuario?.role === "cliente" ? (
+              <>
+                <DropdownMenuItem
+                  onClick={() => {
+                    setSeccion("configuracion");
+                    onSeccionChange?.();
+                  }}
+                >
+                  <Settings className="h-4 w-4 mr-2" /> Configuración
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    setSeccion("recargas");
+                    onSeccionChange?.();
+                  }}
+                >
+                  <Wallet className="h-4 w-4 mr-2" /> Mi saldo
+                </DropdownMenuItem>
+              </>
+            ) : (
+              <DropdownMenuItem
+                onClick={() => {
+                  setSeccion("admin-config");
+                  onSeccionChange?.();
+                }}
+              >
+                <Cog className="h-4 w-4 mr-2" /> Configuración Admin
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => logout()} className="text-destructive">
               <LogOut className="h-4 w-4 mr-2" /> Cerrar sesión

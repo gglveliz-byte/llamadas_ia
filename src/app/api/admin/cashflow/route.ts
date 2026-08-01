@@ -34,21 +34,20 @@ export async function GET(req: NextRequest) {
     take: 500,
   });
 
-  const totalRecargas = recargas.reduce((s, t) => s + t.monto, 0);
-  const totalDebitos = Math.abs(debitos.reduce((s, t) => s + t.monto, 0));
+  const totalRecargas = recargas.reduce((s, t) => s + t.monto.toNumber(), 0);
+  const totalDebitos = Math.abs(debitos.reduce((s, t) => s + t.monto.toNumber(), 0));
 
-  // Agrupar por día para el gráfico
   const porDia = new Map<string, { recargas: number; debitos: number }>();
   for (const r of recargas) {
     const dia = r.createdAt.toISOString().slice(0, 10);
     const entry = porDia.get(dia) ?? { recargas: 0, debitos: 0 };
-    entry.recargas += r.monto;
+    entry.recargas += r.monto.toNumber();
     porDia.set(dia, entry);
   }
   for (const d of debitos) {
     const dia = d.createdAt.toISOString().slice(0, 10);
     const entry = porDia.get(dia) ?? { recargas: 0, debitos: 0 };
-    entry.debitos += Math.abs(d.monto);
+    entry.debitos += Math.abs(d.monto.toNumber());
     porDia.set(dia, entry);
   }
 
@@ -56,12 +55,21 @@ export async function GET(req: NextRequest) {
     .map(([dia, v]) => ({ dia, ...v, balance: v.recargas - v.debitos }))
     .sort((a, b) => a.dia.localeCompare(b.dia));
 
+  const transacciones = [...recargas, ...debitos]
+    .slice(0, 100)
+    .map((t) => ({
+      ...t,
+      monto: t.monto.toNumber(),
+      saldoAnterior: t.saldoAnterior.toNumber(),
+      saldoNuevo: t.saldoNuevo.toNumber(),
+    }));
+
   return NextResponse.json({
     totalRecargas,
     totalDebitos,
     balance: totalRecargas - totalDebitos,
     totalTransacciones: recargas.length + debitos.length,
     serie,
-    transacciones: [...recargas, ...debitos].slice(0, 100),
+    transacciones,
   });
 }

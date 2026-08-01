@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { purchasePhoneSchema } from "@/lib/validators/schemas";
+import { validate } from "@/lib/validators/helper";
+import { ApiClient } from "@/lib/api";
 
 /**
  * GET /api/phone-numbers?userId=...
@@ -19,23 +22,35 @@ export async function GET(req: NextRequest) {
 
 /**
  * POST /api/phone-numbers
- * Simula compra de un número Twilio.
+ * Compra un número real vía Telnyx (vía Express internal API).
  * Body: { userId, countryCode, areaCode }
  */
 export async function POST(req: NextRequest) {
-  const { userId, countryCode = "+1" } = await req.json();
+  const body = await req.json();
+  const val = validate(purchasePhoneSchema, body);
+  if (val.error) return val.error;
+  const { userId, countryCode, areaCode } = val.data!;
 
-  // Generar número "comprado" (en prod: Twilio API)
-  const numero = countryCode + Math.floor(1000000 + Math.random() * 9000000);
+  try {
+    // Llamar al backend Express para comprar número real via Telnyx
+    const result = await ApiClient.post<{ phoneNumber: string; telnyxId: string }>(
+      "/internal/telnyx/purchase-number",
+      { userId, countryCode, areaCode }
+    );
 
-  const phone = await db.phoneNumber.create({
-    data: {
-      userId,
-      phoneNumber: numero,
-      countryCode,
-      twilioPhoneSid: "PN" + Math.random().toString(36).slice(2, 14).toUpperCase(),
-    },
-  });
+    // Guardar en BD local
+    const phone = await db.phoneNumber.create({
+      data: {
+        userId,
+        phoneNumber: result.phoneNumber,
+        countryCode,
+        telnyxPhoneSid: result.telnyxId,
+        isActive: true,
+      },
+    });
 
-  return NextResponse.json({ phone });
+    return NextResponse.json({ phone });
+  } catch (e) {
+    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+  }
 }

@@ -38,12 +38,12 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.json({
-    wallet,
+    wallet: { ...wallet, saldo: wallet.saldo.toNumber() },
     ultimaRecarga,
-    totalRecargado: totalRecargado._sum.monto ?? 0,
-    totalDebitado: Math.abs(totalDebitado._sum.monto ?? 0),
+    totalRecargado: totalRecargado._sum.monto?.toNumber() ?? 0,
+    totalDebitado: Math.abs(totalDebitado._sum.monto?.toNumber() ?? 0),
     porcentajeSaldo: ultimaRecarga
-      ? (wallet.saldo / ultimaRecarga.monto) * 100
+      ? (wallet.saldo.toNumber() / ultimaRecarga.monto.toNumber()) * 100
       : 100,
   });
 }

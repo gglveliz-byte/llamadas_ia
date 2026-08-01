@@ -15,6 +15,7 @@ import { ApiClient, type Notification } from "@/lib/api";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
+import { WalletBalance } from "@/components/billing/WalletBalance";
 
 const TITULOS: Record<Seccion, string> = {
   dashboard: "Dashboard",
@@ -26,17 +27,22 @@ const TITULOS: Record<Seccion, string> = {
   "admin-tarifas": "Admin · Tarifas",
   "admin-metricas": "Admin · Métricas del Sistema",
   "admin-flujo": "Admin · Flujo de Caja",
+  "admin-ranking": "Admin · Ranking",
   "admin-config": "Admin · Configuración Global",
 };
 
 export function Topbar({
   onMenuClick,
   sseConectado,
+  walletSaldo,
+  porcentajeSaldo,
 }: {
   onMenuClick?: () => void;
   sseConectado?: boolean;
+  walletSaldo?: number;
+  porcentajeSaldo?: number;
 }) {
-  const { usuario, seccion } = useAppStore();
+  const { usuario, seccion, setSeccion } = useAppStore();
   const [notifs, setNotifs] = React.useState<Notification[]>([]);
   const [unread, setUnread] = React.useState(0);
   const [open, setOpen] = React.useState(false);
@@ -82,10 +88,18 @@ export function Topbar({
       </div>
 
       <div className="flex items-center gap-2">
+        {usuario?.role === "cliente" && walletSaldo !== undefined && (
+          <button
+            onClick={() => setSeccion("recargas")}
+            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-muted/50 hover:bg-muted transition-colors"
+          >
+            <span className="text-sm font-bold">${Number(walletSaldo).toFixed(2)}</span>
+          </button>
+        )}
         {sseConectado !== undefined && (
           <div
             className="flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-medium"
-            title={sseConectado ? "Conectado al backend Express en tiempo real" : "Sin conexión SSE"}
+            title={sseConectado ? "En línea" : "Sin conexión"}
           >
             <span
               className={cn(

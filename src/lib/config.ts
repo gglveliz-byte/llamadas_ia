@@ -1,23 +1,3 @@
-import { existsSync, readFileSync } from "fs";
-import { resolve } from "path";
-
-function loadEnv() {
-  const envPath = resolve(process.cwd(), ".env");
-  if (!existsSync(envPath)) {
-    console.error("❌ Archivo .env no encontrado");
-    process.exit(1);
-  }
-  const content = readFileSync(envPath, "utf-8");
-  content.split("\n").forEach((line) => {
-    const [key, ...rest] = line.split("=");
-    if (key && !key.startsWith("#")) {
-      process.env[key.trim()] = rest.join("=").trim();
-    }
-  });
-}
-
-loadEnv();
-
 const requiredEnv = {
   DATABASE_URL: "PostgreSQL connection string",
   REDIS_URL: "Redis connection string",
@@ -66,11 +46,11 @@ function validateEnv(): void {
   }
 
   if (missing.length > 0 || empty.length > 0) {
-    console.error("\n❌ VARIABLES DE ENTORNO FALTANTES O VACÍAS:\n");
-    [...missing, ...empty].forEach((m) => console.error(`  - ${m}`));
-    console.error("\n💡 Copia .env.example a .env y completa todos los valores requeridos.");
-    console.error("   Para desarrollo local, usa los valores de docker-compose.\n");
-    process.exit(1);
+    console.warn("\n⚠️ VARIABLES DE ENTORNO FALTANTES O VACÍAS (Saltando exit para permitir build):\n");
+    [...missing, ...empty].forEach((m) => console.warn(`  - ${m}`));
+    console.warn("\n💡 Asegúrate de configurarlas en tu proveedor (Render) antes de usar la app en producción.\n");
+    // En lugar de matar el proceso, lanzamos un error que será atrapado por el try/catch durante el build.
+    throw new Error("Variables de entorno faltantes");
   }
 
   if (process.env.NODE_ENV === "production") {

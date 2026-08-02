@@ -13,7 +13,7 @@ const ai = (process.env.GEMINI_API_KEY
 
 const live = ai.live as any;
 
-const MODELO = process.env.GEMINI_MODEL || "gemini-2.0-flash-exp";
+const MODELO = process.env.GEMINI_MODEL || "models/gemini-3.1-flash-live-preview";
 
 interface SesionSimulador {
   ws: WebSocket;
@@ -201,7 +201,14 @@ const liveConnect = ai.live.connect as any;
     const session = sessionResult as Session;
 
     sesion.gemini = session as Session;
-    enviarTexto(sesion.ws, "Conectado a Gemini. ¡Cuéntame sobre tu negocio!");
+    enviarTexto(sesion.ws, "Conectado a Gemini. Iniciando...");
+
+    // Forzar a que la IA hable primero (Opening Prompt oculto)
+    try {
+      await session.send({ parts: [{ text: "Saluda amablemente e inicia la entrevista haciendo la primera pregunta." }] } as any);
+    } catch (e) {
+      logger.warn({ error: (e as Error).message }, "Error enviando prompt inicial a Gemini");
+    }
 
     procesarRespuestasGemini(session as Session, sesion, callSid);
   } catch (e) {

@@ -39,7 +39,7 @@ const ai = process.env.GEMINI_API_KEY
   ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
   : null;
 
-const MODELO = process.env.GEMINI_MODEL || "gemini-2.0-flash-exp";
+const MODELO = process.env.GEMINI_MODEL || "models/gemini-3.1-flash-live-preview";
 
 export type SesionGemini = Session;
 
@@ -82,9 +82,16 @@ export async function crearSesionGemini(
     });
 
     logger.info({ callSid, streamSid, userId }, "Sesión Gemini Live creada");
-    return session as SesionGemini;
+    // Forzar a la IA a hablar primero saludando al cliente
+    try {
+      await (session as Session).send({ parts: [{ text: "Ha entrado una llamada. Contesta inmediatamente saludando amablemente." }] } as any);
+    } catch (e) {
+      logger.warn({ error: (e as Error).message }, "Error enviando prompt inicial a Gemini en Telnyx");
+    }
+
+    return session as Session;
   } catch (e) {
-    logger.error({ error: (e as Error).message, callSid }, "Error creando sesión Gemini");
+    logger.error({ error: (e as Error).message, callSid }, "Error conectando con Gemini Live API");
     enviarAlertaAdmin(`CRÍTICO: No se pudo conectar a la API de Gemini Live para la llamada ${callSid}.\nDetalle: ${(e as Error).message}`);
     return null;
   }

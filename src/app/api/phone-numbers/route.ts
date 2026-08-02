@@ -32,14 +32,14 @@ export async function POST(req: NextRequest) {
 
   try {
     const expressUrl = process.env.DOMINIO_EXPRESS || "http://localhost:3001";
-    // Usar el token de autorización actual para la petición al backend
-    const authHeader = req.headers.get("authorization");
+    const internalApiKey = process.env.INTERNAL_API_KEY || "dev-internal-key";
     
     const response = await fetch(`${expressUrl}/internal/telnyx/purchase-number`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(authHeader ? { "Authorization": authHeader } : {}),
+        "x-internal-api-key": internalApiKey,
+        "x-user-id": userId,
       },
       body: JSON.stringify({ userId, countryCode, areaCode })
     });

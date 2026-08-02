@@ -33,9 +33,13 @@ export async function POST(req: NextRequest) {
     // Enviar email vía backend interno
     try {
       const expressUrl = process.env.DOMINIO_EXPRESS || "http://localhost:3001";
+      const internalApiKey = process.env.INTERNAL_API_KEY || "dev-internal-key";
       await fetch(`${expressUrl}/internal/email`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "x-internal-api-key": internalApiKey,
+        },
         body: JSON.stringify({
           to: email,
           subject: "Recuperación de contraseña - VozIA",

@@ -50,9 +50,13 @@ export async function POST(req: NextRequest) {
     for (let intento = 1; intento <= maxIntentos; intento++) {
       try {
         const expressUrl = process.env.DOMINIO_EXPRESS || "http://localhost:3001";
+        const internalApiKey = process.env.INTERNAL_API_KEY || "dev-internal-key";
         const response = await fetch(`${expressUrl}/internal/telnyx/create-child-account`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { 
+            "Content-Type": "application/json",
+            "x-internal-api-key": internalApiKey,
+          },
           body: JSON.stringify({
             businessName: user.businessName || user.email,
             email,
@@ -102,9 +106,13 @@ export async function POST(req: NextRequest) {
     const frontendUrl = process.env.DOMINIO_FRONTEND || "http://localhost:3000";
     try {
       const expressUrl = process.env.DOMINIO_EXPRESS || "http://localhost:3001";
+      const internalApiKey = process.env.INTERNAL_API_KEY || "dev-internal-key";
       await fetch(`${expressUrl}/internal/email`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "x-internal-api-key": internalApiKey,
+        },
         body: JSON.stringify({
           to: email,
           subject: "Verifica tu cuenta - VozIA",

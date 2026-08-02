@@ -70,11 +70,8 @@ export function Sidebar({ walletSaldo, porcentajeSaldo, onSeccionChange }: Sideb
 
   const items = NAV_ITEMS.filter((item) => item.rol === usuario?.role);
 
-  const initials = (usuario?.businessName || usuario?.email || "??")
-    .split(" ")
+  const initials = (usuario?.businessName || usuario?.email || "")
     .slice(0, 2)
-    .map((s) => s[0])
-    .join("")
     .toUpperCase();
 
   return (

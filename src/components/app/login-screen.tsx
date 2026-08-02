@@ -245,10 +245,10 @@ export function LoginScreen() {
                       u.role === "admin" ? "bg-amber-600" : "bg-primary"
                     }`}
                   >
-                    {u.role === "admin" ? <Shield className="h-4 w-4" /> : u.businessName.slice(0, 2)}
+                    {u.role === "admin" ? <Shield className="h-4 w-4" /> : (u.businessName || u.email || "").slice(0, 2)}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold truncate">{u.businessName}</div>
+                    <div className="text-sm font-semibold truncate">{u.businessName || "Sin Nombre"}</div>
                     <div className="text-xs text-muted-foreground truncate">{u.email}</div>
                   </div>
                   <Badge variant={u.role === "admin" ? "default" : "secondary"}>

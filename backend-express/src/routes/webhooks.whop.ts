@@ -17,6 +17,7 @@ export const whopRouter = Router();
 
 const whopsdk = new Whop({
   apiKey: process.env.WHOP_API_KEY || "dummy_api_key",
+  environment: process.env.NEXT_PUBLIC_SANDBOX_MODE === "true" ? "sandbox" : "production",
   webhookKey: process.env.WHOP_WEBHOOK_SECRET
     ? btoa(process.env.WHOP_WEBHOOK_SECRET)
     : "dummy_webhook_key",

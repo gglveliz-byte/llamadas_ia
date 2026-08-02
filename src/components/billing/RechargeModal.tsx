@@ -159,6 +159,7 @@ export function RechargeModal({ open, onOpenChange, userId, onSuccess }: Recharg
                 sessionId={checkoutSessionId}
                 returnUrl={`${window.location.origin}/dashboard?recarga=exito`}
                 theme="system"
+                environment={process.env.NEXT_PUBLIC_SANDBOX_MODE === "true" ? "sandbox" : "production"}
                 onComplete={() => {
                   setConfirmOpen(false);
                   setCheckoutSessionId(null);
@@ -198,7 +199,7 @@ export function RechargeModal({ open, onOpenChange, userId, onSuccess }: Recharg
             <DialogFooter>
               <Button variant="outline" onClick={() => setConfirmOpen(false)}>Cancelar</Button>
               <Button onClick={confirmarRecarga} disabled={processing}>
-                {processing ? "Procesando..." : `Pagar $${paqueteSel?.montoRecarga.toFixed(2)}`}
+                {processing ? "Procesando..." : process.env.NEXT_PUBLIC_SANDBOX_MODE === "true" ? `Simular Pago $${paqueteSel?.montoRecarga.toFixed(2)} (Sandbox)` : `Pagar $${paqueteSel?.montoRecarga.toFixed(2)}`}
               </Button>
             </DialogFooter>
           )}

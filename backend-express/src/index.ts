@@ -21,6 +21,7 @@ import { internalRouter } from "./routes/internal.api";
 import { adminRouter } from "./routes/admin.api";
 import { registrarTelnyxStreamHandler } from "./websockets/telnyxStream.handler";
 import { registrarSimuladorHandler } from "./websockets/simulador.handler";
+import { parse } from "url";
 import { configurarSSEHeaders, registrarClienteSSE, removerClienteSSE, emitirSSE } from "./sse/events.emitter";
 import { iniciarMonitoreo } from "./services/monitoring.service";
 import { rateLimiter } from "./middleware/rateLimiter";
@@ -159,11 +160,27 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 // Crear servidor HTTP + WebSocket
 const server = http.createServer(app);
 
-const wssTelnyx = new WebSocketServer({ server, path: "/stream/telnyx" });
+const wssTelnyx = new WebSocketServer({ noServer: true });
 registrarTelnyxStreamHandler(wssTelnyx);
 
-const wssSim = new WebSocketServer({ server, path: "/stream/sim" });
+const wssSim = new WebSocketServer({ noServer: true });
 registrarSimuladorHandler(wssSim);
+
+server.on("upgrade", (request, socket, head) => {
+  const { pathname } = parse(request.url || "", true);
+
+  if (pathname === "/stream/telnyx") {
+    wssTelnyx.handleUpgrade(request, socket, head, (ws) => {
+      wssTelnyx.emit("connection", ws, request);
+    });
+  } else if (pathname === "/stream/sim") {
+    wssSim.handleUpgrade(request, socket, head, (ws) => {
+      wssSim.emit("connection", ws, request);
+    });
+  } else {
+    socket.destroy();
+  }
+});
 
 server.listen(PORT, () => {
   logger.info(

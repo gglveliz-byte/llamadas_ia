@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "next dev -p 3000 --webpack",
     "build": "prisma generate && next build --webpack",
-    "start": "NODE_ENV=production node .next/standalone/server.js",
+    "start": "next start",
     "lint": "next lint",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",

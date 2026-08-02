@@ -64,6 +64,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ phone });
   } catch (e) {
+    console.error("[phone-numbers] Error en POST:", (e as Error).message);
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });
   }
 }

@@ -240,12 +240,12 @@ async function manejarStart(
         enviarATelnyx(ws, streamId, audioBase64);
       }
     } catch (e) {
-      logger.error("Error leyendo fallback audio", e);
+      logger.error({ error: (e as Error).message }, "Error leyendo fallback audio");
     }
     // Cerrar el websocket para colgar o avanzar
     setTimeout(() => {
       ws.close(1011, "Gemini Unavailable");
-      hangupCall(callControlId).catch(e => logger.error("Error colgando llamada tras fallback: " + e));
+      hangupCall(callControlId).catch(e => logger.error({ error: (e as Error).message }, "Error colgando llamada tras fallback"));
     }, 9500); // Dar tiempo a que se reproduzca el mensaje (10s)
   }
 

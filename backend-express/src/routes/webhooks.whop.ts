@@ -10,7 +10,7 @@ import { Whop } from "@whop/sdk";
 import { acreditarSaldo, reversarSaldo } from "../services/billing.service";
 import { emitirSSE } from "../sse/events.emitter";
 import { logger } from "../utils/logger";
-import { db } from "../config/db";
+import { db } from "../models/database.pool";
 import { enviarEmail, emailTemplates } from "../services/email.service";
 
 export const whopRouter = Router();

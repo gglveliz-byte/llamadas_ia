@@ -3,6 +3,7 @@
 import * as React from "react";
 import { CreditCard, CheckCircle2, Sparkles } from "lucide-react";
 import { ApiClient, type RechargePackage } from "@/lib/api";
+import { WhopCheckoutEmbed } from "@whop/checkout/react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -36,6 +37,7 @@ export function RechargeModal({ open, onOpenChange, userId, onSuccess }: Recharg
   const [processing, setProcessing] = React.useState(false);
   const [paqueteSel, setPaqueteSel] = React.useState<RechargePackage | null>(null);
   const [confirmOpen, setConfirmOpen] = React.useState(false);
+  const [checkoutSessionId, setCheckoutSessionId] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (!open) return;
@@ -47,6 +49,7 @@ export function RechargeModal({ open, onOpenChange, userId, onSuccess }: Recharg
 
   const iniciarRecarga = (p: RechargePackage) => {
     setPaqueteSel(p);
+    setCheckoutSessionId(null);
     setConfirmOpen(true);
   };
 
@@ -54,13 +57,18 @@ export function RechargeModal({ open, onOpenChange, userId, onSuccess }: Recharg
     if (!paqueteSel) return;
     setProcessing(true);
     try {
-      const { checkoutUrl } = await ApiClient.post<{ checkoutUrl: string }>(
+      const { checkoutUrl, checkoutId } = await ApiClient.post<{ checkoutUrl: string; checkoutId?: string }>(
         "/api/whop/checkout",
         { packageId: paqueteSel.id }
       );
-      window.location.href = checkoutUrl;
+      if (checkoutId) {
+        setCheckoutSessionId(checkoutId);
+      } else {
+        window.location.href = checkoutUrl;
+      }
     } catch (e) {
       toast.error("Error: " + (e as Error).message);
+    } finally {
       setProcessing(false);
     }
   };
@@ -128,47 +136,72 @@ export function RechargeModal({ open, onOpenChange, userId, onSuccess }: Recharg
         </DialogContent>
       </Dialog>
 
-      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+      <Dialog open={confirmOpen} onOpenChange={(v) => {
+        setConfirmOpen(v);
+        if (!v) setCheckoutSessionId(null);
+      }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <CreditCard className="h-5 w-5 text-primary" />
-              Confirmar recarga
+              {checkoutSessionId ? "Completar pago seguro" : "Confirmar recarga"}
             </DialogTitle>
             <DialogDescription>
-              Serás redirigido a un portal de pago seguro para completar la compra.
+              {checkoutSessionId
+                ? "Introduce tu método de pago de forma segura a través de Whop."
+                : "Serás redirigido a un portal de pago seguro para completar la compra."}
             </DialogDescription>
           </DialogHeader>
-          {paqueteSel && (
-            <div className="space-y-3 py-2">
-              <div className="rounded-lg border border-border p-4 bg-muted/30 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Paquete</span>
-                  <span className="text-sm font-semibold">{paqueteSel.nombre}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Saldo a recibir</span>
-                  <span className="text-sm font-bold text-emerald-600">
-                    +${paqueteSel.saldoOtorgado.toFixed(2)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Precio</span>
-                  <span className="text-sm font-bold">${paqueteSel.montoRecarga.toFixed(2)} USD</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Tarifa/min</span>
-                  <span className="text-sm">${paqueteSel.precioPorMinuto.toFixed(3)}</span>
+          
+          {checkoutSessionId ? (
+            <div className="py-2 h-[500px]">
+              <WhopCheckoutEmbed
+                sessionId={checkoutSessionId}
+                returnUrl={`${window.location.origin}/dashboard?recarga=exito`}
+                theme="system"
+                onComplete={() => {
+                  setConfirmOpen(false);
+                  setCheckoutSessionId(null);
+                  toast.success("¡Pago completado con éxito!");
+                  if (onSuccess) onSuccess();
+                }}
+              />
+            </div>
+          ) : (
+            paqueteSel && (
+              <div className="space-y-3 py-2">
+                <div className="rounded-lg border border-border p-4 bg-muted/30 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Paquete</span>
+                    <span className="text-sm font-semibold">{paqueteSel.nombre}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Saldo a recibir</span>
+                    <span className="text-sm font-bold text-emerald-600">
+                      +${paqueteSel.saldoOtorgado.toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Precio</span>
+                    <span className="text-sm font-bold">${paqueteSel.montoRecarga.toFixed(2)} USD</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Tarifa/min</span>
+                    <span className="text-sm">${paqueteSel.precioPorMinuto.toFixed(3)}</span>
+                  </div>
                 </div>
               </div>
-            </div>
+            )
           )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmOpen(false)}>Cancelar</Button>
-            <Button onClick={confirmarRecarga} disabled={processing}>
-              {processing ? "Procesando..." : `Pagar $${paqueteSel?.montoRecarga.toFixed(2)}`}
-            </Button>
-          </DialogFooter>
+          
+          {!checkoutSessionId && (
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setConfirmOpen(false)}>Cancelar</Button>
+              <Button onClick={confirmarRecarga} disabled={processing}>
+                {processing ? "Procesando..." : `Pagar $${paqueteSel?.montoRecarga.toFixed(2)}`}
+              </Button>
+            </DialogFooter>
+          )}
         </DialogContent>
       </Dialog>
     </>

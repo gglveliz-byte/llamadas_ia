@@ -37,6 +37,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Paquete no encontrado o inactivo" }, { status: 404 });
   }
 
+  const whopCompanyId = process.env.WHOP_COMPANY_ID;
+  if (!whopCompanyId) {
+    return NextResponse.json({ error: "WHOP_COMPANY_ID no configurado" }, { status: 500 });
+  }
+
   const frontendUrl = process.env.DOMINIO_FRONTEND;
   if (!frontendUrl) {
     return NextResponse.json({ error: "DOMINIO_FRONTEND no configurado" }, { status: 500 });
@@ -44,6 +49,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const checkout = await whop.checkoutConfigurations.create({
+      account_id: whopCompanyId,
       plan: {
         title: `Recarga ${paquete.nombre}`,
         description: `Paquete de recarga ${paquete.nombre} - ${paquete.saldoOtorgado.toFixed(0)} USD saldo por ${paquete.montoRecarga.toFixed(2)} USD`,
@@ -67,7 +73,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No se pudo generar el link de pago" }, { status: 500 });
     }
 
-    return NextResponse.json({ checkoutUrl });
+    return NextResponse.json({ checkoutUrl, checkoutId: checkout.id });
   } catch (e) {
     console.error("[whop/checkout] Error:", (e as Error).message);
     return NextResponse.json({ error: "Error creando checkout" }, { status: 500 });

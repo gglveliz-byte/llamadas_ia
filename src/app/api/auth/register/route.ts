@@ -4,7 +4,7 @@ import { hashPassword } from "@/lib/auth-utils";
 import crypto from "crypto";
 import { registerSchema } from "@/lib/validators/schemas";
 import { validate } from "@/lib/validators/helper";
-import { ApiClient } from "@/lib/api";
+// import { ApiClient } from "@/lib/api";
 
 export async function POST(req: NextRequest) {
   try {
@@ -49,15 +49,27 @@ export async function POST(req: NextRequest) {
     const maxIntentos = 3;
     for (let intento = 1; intento <= maxIntentos; intento++) {
       try {
-        const setup = await ApiClient.post<{ 
+        const expressUrl = process.env.DOMINIO_EXPRESS || "http://localhost:3001";
+        const response = await fetch(`${expressUrl}/internal/telnyx/create-child-account`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            businessName: user.businessName || user.email,
+            email,
+            webhookBaseUrl: expressUrl,
+          })
+        });
+        
+        if (!response.ok) {
+           const err = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+           throw new Error(err.error || `HTTP ${response.status}`);
+        }
+        
+        const setup = (await response.json()) as { 
           childAccountId: string; 
           apiKeyEncrypted: string; 
           connectionId: string 
-        }>("/internal/telnyx/create-child-account", {
-          businessName: user.businessName || user.email,
-          email,
-          webhookBaseUrl: process.env.DOMINIO_EXPRESS || "http://localhost:3001",
-        });
+        };
 
         telnyxChildAccountId = setup.childAccountId;
         telnyxApiKeyEncrypted = setup.apiKeyEncrypted;
@@ -89,10 +101,16 @@ export async function POST(req: NextRequest) {
     // Enviar email verificación vía backend interno
     const frontendUrl = process.env.DOMINIO_FRONTEND || "http://localhost:3000";
     try {
-      await ApiClient.post("/internal/email", {
-        to: email,
-        template: "registro",
-        data: { token: verificationToken },
+      const expressUrl = process.env.DOMINIO_EXPRESS || "http://localhost:3001";
+      await fetch(`${expressUrl}/internal/email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: email,
+          subject: "Verifica tu cuenta - VozIA",
+          text: `Haz clic aquí para verificar tu cuenta: ${frontendUrl}/verify-email?token=${verificationToken}`,
+          html: `<p>Bienvenido a VozIA. Haz clic <a href="${frontendUrl}/verify-email?token=${verificationToken}">aquí</a> para verificar tu cuenta.</p>`
+        })
       });
     } catch (e) {
       console.error("Error enviando email verificación:", (e as Error).message);

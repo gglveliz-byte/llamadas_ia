@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { purchasePhoneSchema } from "@/lib/validators/schemas";
 import { validate } from "@/lib/validators/helper";
-import { ApiClient } from "@/lib/api";
 
 /**
  * GET /api/phone-numbers?userId=...
@@ -32,11 +31,25 @@ export async function POST(req: NextRequest) {
   const { userId, countryCode, areaCode } = val.data!;
 
   try {
-    // Llamar al backend Express para comprar número real via Telnyx
-    const result = await ApiClient.post<{ phoneNumber: string; telnyxId: string }>(
-      "/internal/telnyx/purchase-number",
-      { userId, countryCode, areaCode }
-    );
+    const expressUrl = process.env.DOMINIO_EXPRESS || "http://localhost:3001";
+    // Usar el token de autorización actual para la petición al backend
+    const authHeader = req.headers.get("authorization");
+    
+    const response = await fetch(`${expressUrl}/internal/telnyx/purchase-number`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(authHeader ? { "Authorization": authHeader } : {}),
+      },
+      body: JSON.stringify({ userId, countryCode, areaCode })
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+      throw new Error(err.error || `HTTP ${response.status}`);
+    }
+    
+    const result = (await response.json()) as { phoneNumber: string; telnyxId: string };
 
     // Guardar en BD local
     const phone = await db.phoneNumber.create({

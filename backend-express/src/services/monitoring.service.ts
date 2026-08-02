@@ -99,17 +99,25 @@ Uptime: ${Math.floor(metrica.uptime / 60)} min`;
       emitirSSEAdmin("alerta_sistema", { metrica, umbrales, mensaje });
 
       // Enviar email al admin
-      const emailAdmin = await db.adminConfig.findUnique({
-        where: { clave: "email_admin_alertas" },
-      });
-      if (emailAdmin?.valor) {
-        const template = emailTemplates.alertaSistema(mensaje);
-        await enviarEmail({ to: emailAdmin.valor, ...template });
-      }
+      await enviarAlertaAdmin(mensaje);
     }
   }, 10000);
 
   logger.info("Monitoreo iniciado (intervalo 10s)");
+}
+
+export async function enviarAlertaAdmin(mensaje: string): Promise<void> {
+  try {
+    const emailAdmin = await db.adminConfig.findUnique({
+      where: { clave: "email_admin_alertas" },
+    });
+    if (emailAdmin?.valor) {
+      const template = emailTemplates.alertaSistema(mensaje);
+      await enviarEmail({ to: emailAdmin.valor, ...template });
+    }
+  } catch (e) {
+    logger.error({ error: (e as Error).message }, "Error enviando alerta admin");
+  }
 }
 
 async function obtenerUmbrales(): Promise<{ cpu: number; ram: number; latencia: number }> {

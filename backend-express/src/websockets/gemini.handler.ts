@@ -5,7 +5,7 @@ import { obtenerContextoRAG } from "../services/rag.service";
 import { agendarCita, cancelarCita, consultarDisponibilidad } from "../services/calendar.service";
 import { transcodificarGeminiATelefonía } from "../utils/audioTranscoder";
 import { emitirSSE } from "../sse/events.emitter";
-import { registrarLatencia } from "../services/monitoring.service";
+import { registrarLatencia, enviarAlertaAdmin } from "../services/monitoring.service";
 import { actualizarRateLimitGemini } from "../services/ratelimit.service";
 import { logger } from "../utils/logger";
 
@@ -85,6 +85,7 @@ export async function crearSesionGemini(
     return session as SesionGemini;
   } catch (e) {
     logger.error({ error: (e as Error).message, callSid }, "Error creando sesión Gemini");
+    enviarAlertaAdmin(`CRÍTICO: No se pudo conectar a la API de Gemini Live para la llamada ${callSid}.\nDetalle: ${(e as Error).message}`);
     return null;
   }
 }
@@ -451,6 +452,7 @@ export async function procesarMensajesGemini(
     }
   } catch (e) {
     logger.error({ error: (e as Error).message, callSid }, "Error en loop de Gemini");
+    enviarAlertaAdmin(`CRÍTICO: El loop de Gemini falló o se interrumpió para la llamada ${callSid}.\nDetalle: ${(e as Error).message}`);
   }
 }
 

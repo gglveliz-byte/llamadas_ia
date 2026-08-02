@@ -10,6 +10,8 @@ import { Whop } from "@whop/sdk";
 import { acreditarSaldo, reversarSaldo } from "../services/billing.service";
 import { emitirSSE } from "../sse/events.emitter";
 import { logger } from "../utils/logger";
+import { db } from "../config/db";
+import { enviarEmail, emailTemplates } from "../services/email.service";
 
 export const whopRouter = Router();
 
@@ -76,6 +78,18 @@ whopRouter.post("/", async (req, res) => {
         paymentId: id,
         saldoNuevo,
       });
+
+      // Enviar email de recarga exitosa
+      const user = await db.user.findUnique({ where: { id: userId } });
+      if (user?.email) {
+        await enviarEmail({
+          to: user.email,
+          ...emailTemplates.recargaExitosa(
+            (evento.data.amount_after_fees ?? 0).toFixed(2),
+            saldoNuevo.toFixed(2)
+          ),
+        });
+      }
     }
 
     if (evento.type === "refund.created") {

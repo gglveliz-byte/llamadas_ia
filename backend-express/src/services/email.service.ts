@@ -192,6 +192,19 @@ export const emailTemplates = {
       ${buttonHtml(`${process.env.DOMINIO_FRONTEND}/dashboard?tab=recargas`, "Recargar ahora", "#f59e0b")}
     `),
   }),
+  recargaExitosa: (monto: string, saldoNuevo: string) => ({
+    subject: "Recarga exitosa - VozIA",
+    text: `Tu recarga de $${monto} se procesó correctamente. Nuevo saldo: $${saldoNuevo}.`,
+    html: baseHtml(`
+      <h2 style="margin:0 0 16px;color:#10b981;">¡Recarga Exitosa!</h2>
+      <p>Hemos procesado tu recarga correctamente.</p>
+      <ul style="color:#555;font-size:16px;">
+        <li><strong>Monto recargado:</strong> $${monto}</li>
+        <li><strong>Nuevo saldo:</strong> $${saldoNuevo}</li>
+      </ul>
+      <p>Ya puedes seguir disfrutando de nuestro servicio de Voz con IA.</p>
+    `),
+  }),
   saldoAgotado: () => ({
     subject: "Saldo agotado - Recarga para seguir",
     text: "Tu saldo se agotó. Recarga para seguir recibiendo llamadas.",

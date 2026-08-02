@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import crypto from "crypto";
-import { ApiClient } from "@/lib/api";
+// import { ApiClient } from "@/lib/api";
 
 export async function POST(req: NextRequest) {
   try {
@@ -32,11 +32,16 @@ export async function POST(req: NextRequest) {
 
     // Enviar email vía backend interno
     try {
-      await ApiClient.post("/internal/email", {
-        to: email,
-        subject: "Restablece tu contraseña - VozIA",
-        template: "recuperacion",
-        data: { token: resetToken },
+      const expressUrl = process.env.DOMINIO_EXPRESS || "http://localhost:3001";
+      await fetch(`${expressUrl}/internal/email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: email,
+          subject: "Recuperación de contraseña - VozIA",
+          text: `Usa este token para recuperar tu contraseña: ${resetToken}`,
+          html: `<p>Usa este token para recuperar tu contraseña: <strong>${resetToken}</strong></p>`
+        })
       });
     } catch (e) {
       console.error("Error enviando email recuperación:", (e as Error).message);

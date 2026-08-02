@@ -7,10 +7,13 @@
  * 
  * Reutiliza: crearSesionGemini, procesarMensajesGemini, transcodificarTelefoníaAGemini, etc.
  */
+import fs from "fs";
+import path from "path";
 import type { WebSocket } from "ws";
 import g711 from "g711";
 import { crearSesionGemini, procesarMensajesGemini } from "./gemini.handler";
 import { transcodificarTelefoníaAGemini, transcodificarGeminiATelefonía } from "../utils/audioTranscoder";
+import { hangupCall } from "../services/telnyx.service";
 import { crearDetectorVoz, type DetectorVoz } from "../services/vad.service";
 import { verificarSaldo, debitarLlamada } from "../services/billing.service";
 import { incrementarLlamadasActivas, decrementarLlamadasActivas } from "../services/monitoring.service";
@@ -71,6 +74,7 @@ interface SesionLlamada {
   sesionGemini: Awaited<ReturnType<typeof crearSesionGemini>> | null;
   detectorVoz: DetectorVoz | null;
   ultimaActividadGemini: number;
+  ultimoVozDetectada: number;
   bargeInDetectado: boolean;
   grabacionActiva: boolean;
   finalizada: boolean;
@@ -122,6 +126,7 @@ export function registrarTelnyxStreamHandler(wss: import("ws").WebSocketServer):
       sesionGemini: null,
       detectorVoz: null,
       ultimaActividadGemini: Date.now(),
+      ultimoVozDetectada: 0,
       bargeInDetectado: false,
       grabacionActiva: settings?.grabacionActiva ?? false,
       finalizada: false,
@@ -227,7 +232,21 @@ async function manejarStart(
       logger.error({ error: (e as Error).message, callControlId }, "Error en loop de Gemini");
     });
   } else {
-    logger.warn({ callControlId }, "Sesión Gemini no disponible - llamada continuará sin IA");
+    logger.warn({ callControlId }, "Sesión Gemini no disponible - ejecutando Fallback de Audio");
+    try {
+      const fallbackPath = path.join(__dirname, "../../assets/fallback_audio.txt");
+      if (fs.existsSync(fallbackPath)) {
+        const audioBase64 = fs.readFileSync(fallbackPath, "utf8");
+        enviarATelnyx(ws, streamId, audioBase64);
+      }
+    } catch (e) {
+      logger.error("Error leyendo fallback audio", e);
+    }
+    // Cerrar el websocket para colgar o avanzar
+    setTimeout(() => {
+      ws.close(1011, "Gemini Unavailable");
+      hangupCall(callControlId).catch(e => logger.error("Error colgando llamada tras fallback: " + e));
+    }, 9500); // Dar tiempo a que se reproduzca el mensaje (10s)
   }
 
   // Detector de voz (WebRTC VAD) para barge-in preciso
@@ -258,8 +277,28 @@ async function manejarMedia(
   // Solo procesar inbound con Gemini
   if (track !== "inbound" || !sesion.sesionGemini) return;
 
+  // Detección de barge-in y Voice Activity (WebRTC VAD - ML, distingue voz de ruido)
+  const mulawBuf = Buffer.from(payload, "base64");
+  const pcmSamples = g711.ulawToPCM(mulawBuf);
+  const pcmBuf = Buffer.from(pcmSamples.buffer, pcmSamples.byteOffset, pcmSamples.byteLength);
+  
+  if (sesion.detectorVoz?.tieneVoz(pcmBuf)) {
+    sesion.ultimoVozDetectada = Date.now();
+    const tiempoDesdeUltimaActividad = Date.now() - sesion.ultimaActividadGemini;
+    if (tiempoDesdeUltimaActividad > 200 && !sesion.bargeInDetectado) {
+      // Posible barge-in - limpiar buffer de Telnyx
+      sesion.bargeInDetectado = true;
+      enviarClearATelnyx(ws, sesion.streamId);
+      setTimeout(() => (sesion.bargeInDetectado = false), 1000);
+    }
+  }
+
+  // Filtro VAD: Si no hubo voz en los últimos 500ms, descartar ruido de fondo
+  if (Date.now() - sesion.ultimoVozDetectada > 500) {
+    return;
+  }
+
   // Transcodificar Telnyx (μ-law 8k) → Gemini (PCM 16k)
-  // Telnyx usa formato estándar PCMU: μ-law 8kHz Base64
   const pcm16k = await transcodificarTelefoníaAGemini(payload);
 
   // Enviar a Gemini como input en tiempo real
@@ -273,20 +312,6 @@ async function manejarMedia(
     sesion.ultimaActividadGemini = Date.now();
   } catch (e) {
     logger.error({ error: (e as Error).message, callControlId }, "Error enviando audio a Gemini");
-  }
-
-  // Detección de barge-in (WebRTC VAD - ML, distingue voz de ruido)
-  const mulawBuf = Buffer.from(payload, "base64");
-  const pcmSamples = g711.ulawToPCM(mulawBuf);
-  const pcmBuf = Buffer.from(pcmSamples.buffer, pcmSamples.byteOffset, pcmSamples.byteLength);
-  if (sesion.detectorVoz?.tieneVoz(pcmBuf)) {
-    const tiempoDesdeUltimaActividad = Date.now() - sesion.ultimaActividadGemini;
-    if (tiempoDesdeUltimaActividad > 200 && !sesion.bargeInDetectado) {
-      // Posible barge-in - limpiar buffer de Telnyx
-      sesion.bargeInDetectado = true;
-      enviarClearATelnyx(ws, sesion.streamId);
-      setTimeout(() => (sesion.bargeInDetectado = false), 1000);
-    }
   }
 }
 

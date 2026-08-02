@@ -77,7 +77,8 @@ export function SimuladorSection() {
     const { token } = useAppStore.getState();
     const protocolo = window.location.protocol === "https:" ? "wss:" : "ws:";
     const host = process.env.NEXT_PUBLIC_WS_URL!;
-    const url = `${host}/stream/sim?user_id=${usuario.id}&token=${token || "dev"}`;
+    const wsHost = host.replace(/^http/, "ws");
+    const url = `${wsHost}/stream/sim?user_id=${usuario.id}&token=${token || "dev"}`;
     wsUrlRef.current = url;
 
     const ws = new WebSocket(url);

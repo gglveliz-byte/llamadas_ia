@@ -200,9 +200,10 @@ internalRouter.post("/telnyx/purchase-number", async (req, res) => {
 
     let childAccountId = user?.telnyxChildAccountId ?? null;
 
-    // Aprovisionamiento lazy: si el registro no alcanzó a crear la child account
-    // (p.ej. Express reiniciando durante el registro), se crea aquí al comprar.
-    if (!childAccountId) {
+    const isRootFlow = !process.env.TELNYX_ORG_ID || process.env.TELNYX_ORG_ID === "dummy_org_id";
+    
+    // Aprovisionamiento lazy: solo si NO es flujo root y falta aprovisionar la subcuenta
+    if (!isRootFlow && !childAccountId) {
       if (!user) {
         return res.status(400).json({ error: "Usuario no encontrado" });
       }
@@ -235,27 +236,33 @@ internalRouter.post("/telnyx/purchase-number", async (req, res) => {
 
       const seleccionado = disponibles[0];
 
-      // Comprar número asignado a la child account del usuario
-      const comprado = await purchasePhoneNumber(seleccionado.phone_number, childAccountId);
+      // Comprar número: Si es flujo root, childAccountId será null/undefined.
+      const comprado = await purchasePhoneNumber(seleccionado.phone_number, isRootFlow ? undefined : (childAccountId || undefined));
 
       // Obtener o crear conexión de voz para streaming
       const wsHost = process.env.DOMINIO_EXPRESS?.replace(/^https?:\/\//, "") || "localhost:3001";
       const streamUrl = `wss://${wsHost}/stream/telnyx`;
 
       let connectionId = process.env.TELNYX_CONNECTION_ID;
+      
+      // Si estamos en flujo de subcuentas, la conexión debe ser específica de la subcuenta.
+      // Sin embargo, por simplificar, asociaremos el número al TELNYX_CONNECTION_ID si existe.
+      // Si no existe, crearemos una para la subcuenta o cuenta root según corresponda.
       if (!connectionId) {
         const conn = await (await import("../services/telnyx.service")).createVoiceConnection(
           "VozIA Streaming",
           `${process.env.DOMINIO_EXPRESS}/webhooks/telnyx/voice`,
-          childAccountId
+          isRootFlow ? undefined : (childAccountId || undefined)
         );
         connectionId = conn.id;
-        // Guardar en config para reutilizar
-        await db.adminConfig.upsert({
-          where: { clave: "telnyx_connection_id" },
-          update: { valor: connectionId },
-          create: { clave: "telnyx_connection_id", valor: connectionId },
-        });
+        // Solo guardamos la conexión como global si estamos en modo Root
+        if (isRootFlow) {
+          await db.adminConfig.upsert({
+            where: { clave: "telnyx_connection_id" },
+            update: { valor: connectionId },
+            create: { clave: "telnyx_connection_id", valor: connectionId },
+          });
+        }
       }
 
       // Asignar número a la conexión
@@ -306,6 +313,13 @@ internalRouter.post("/telnyx/create-child-account", async (req, res) => {
   const { businessName, email, webhookBaseUrl } = parsed.data;
 
   try {
+    const isRootFlow = !process.env.TELNYX_ORG_ID || process.env.TELNYX_ORG_ID === "dummy_org_id";
+    if (isRootFlow) {
+      // Modo Root: Saltamos la creación de la subcuenta en Telnyx
+      logger.info({ email }, "Flujo Root: Saltando creación de Child Account");
+      return res.json({ skip: true });
+    }
+
     const { createChildAccountWithSetup } = await import("../services/telnyx.service");
     const setup = await createChildAccountWithSetup(businessName, email, webhookBaseUrl);
     const apiKeyEncrypted = encrypt(setup.apiKey);

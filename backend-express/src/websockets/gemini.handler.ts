@@ -84,7 +84,12 @@ export async function crearSesionGemini(
     logger.info({ callSid, streamSid, userId }, "Sesión Gemini Live creada");
     // Forzar a la IA a hablar primero saludando al cliente
     try {
-      await (session as Session).send({ parts: [{ text: "Ha entrado una llamada. Contesta inmediatamente saludando amablemente." }] } as any);
+      await (session as Session).sendRealtimeInput({
+        clientContent: {
+          turns: [{ role: "user", parts: [{ text: "Ha entrado una llamada. Contesta inmediatamente saludando amablemente." }] }],
+          turnComplete: true
+        }
+      } as any);
     } catch (e) {
       logger.warn({ error: (e as Error).message }, "Error enviando prompt inicial a Gemini en Telnyx");
     }

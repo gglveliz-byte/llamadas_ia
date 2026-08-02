@@ -205,7 +205,12 @@ const liveConnect = ai.live.connect as any;
 
     // Forzar a que la IA hable primero (Opening Prompt oculto)
     try {
-      await session.send({ parts: [{ text: "Saluda amablemente e inicia la entrevista haciendo la primera pregunta." }] } as any);
+      await session.sendRealtimeInput({
+        clientContent: {
+          turns: [{ role: "user", parts: [{ text: "Saluda amablemente e inicia la entrevista haciendo la primera pregunta." }] }],
+          turnComplete: true
+        }
+      } as any);
     } catch (e) {
       logger.warn({ error: (e as Error).message }, "Error enviando prompt inicial a Gemini");
     }

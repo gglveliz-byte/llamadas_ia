@@ -175,13 +175,12 @@ internalRouter.get("/health", (req, res) => {
 
 /**
  * POST /internal/telnyx/purchase-number
- * Compra un número Telnyx real para un usuario.
- * Body: { userId, countryCode, areaCode }
+ * Compra un número Telnyx específico para un usuario.
+ * Body: { userId, phoneNumber }
  */
 const purchaseNumberSchema = z.object({
   userId: z.string().uuid(),
-  countryCode: z.string().min(1).max(5),
-  areaCode: z.string().optional(),
+  phoneNumber: z.string().min(10).max(20),
 });
 
 internalRouter.post("/telnyx/purchase-number", async (req, res) => {
@@ -189,7 +188,7 @@ internalRouter.post("/telnyx/purchase-number", async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Datos inválidos" });
   }
-  const { userId, countryCode, areaCode } = parsed.data;
+  const { userId, phoneNumber } = parsed.data;
 
   try {
     // Obtener child account ID del usuario (aprovisiona si falta)
@@ -228,16 +227,8 @@ internalRouter.post("/telnyx/purchase-number", async (req, res) => {
     }
 
     try {
-      // Buscar número disponible
-      const disponibles = await searchAvailableNumbers(countryCode, areaCode, 5);
-      if (disponibles.length === 0) {
-        return res.status(404).json({ error: "No hay números disponibles para ese código de área" });
-      }
-
-      const seleccionado = disponibles[0];
-
-      // Comprar número: Si es flujo root, childAccountId será null/undefined.
-      const comprado = await purchasePhoneNumber(seleccionado.phone_number, isRootFlow ? undefined : (childAccountId || undefined));
+      // Comprar número específico: Si es flujo root, childAccountId será null/undefined.
+      const comprado = await purchasePhoneNumber(phoneNumber, isRootFlow ? undefined : (childAccountId || undefined));
 
       // Obtener o crear conexión de voz para streaming
       const wsHost = process.env.DOMINIO_EXPRESS?.replace(/^https?:\/\//, "") || "localhost:3001";

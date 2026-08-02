@@ -32,6 +32,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -79,6 +86,7 @@ export function ConfiguracionSection() {
   const [settings, setSettings] = React.useState<BusinessSettings | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
+  const [searchModalOpen, setSearchModalOpen] = React.useState(false);
   const [phoneNumbers, setPhoneNumbers] = React.useState<
     Array<{ id: number; phoneNumber: string; countryCode: string; isActive: boolean; purchasedAt: string }>
   >([]);
@@ -123,11 +131,12 @@ export function ConfiguracionSection() {
     }
   };
 
-  const comprarNumero = async () => {
+  const comprarNumeroSeleccionado = async (phoneNumber: string) => {
     if (!usuario) return;
     try {
-      await ApiClient.post("/api/phone-numbers", { userId: usuario.id, countryCode: "+52" });
-      toast.success("Número comprado (simulado)");
+      await ApiClient.post("/api/phone-numbers", { userId: usuario.id, phoneNumber });
+      toast.success("Número comprado correctamente");
+      setSearchModalOpen(false);
       cargar();
     } catch (e) {
       toast.error("Error: " + (e as Error).message);
@@ -145,6 +154,7 @@ export function ConfiguracionSection() {
   }
 
   return (
+    <>
     <Tabs defaultValue="perfil" className="space-y-4">
       <TabsList className="grid w-full grid-cols-2 md:grid-cols-5 h-auto">
         <TabsTrigger value="perfil" className="text-xs gap-1">
@@ -386,7 +396,7 @@ export function ConfiguracionSection() {
               Los números con los que tu negocio recibe llamadas. Compra el que más te convenga.
             </CardDescription>
               </div>
-              <Button onClick={comprarNumero} size="sm">
+              <Button onClick={() => setSearchModalOpen(true)} size="sm">
                 <Plus className="h-4 w-4 mr-1" />
                 Comprar número
               </Button>
@@ -575,6 +585,14 @@ export function ConfiguracionSection() {
         </Card>
       </TabsContent>
     </Tabs>
+    {usuario && (
+      <SearchNumbersModal 
+        open={searchModalOpen} 
+        onClose={() => setSearchModalOpen(false)}
+        onPurchase={comprarNumeroSeleccionado}
+      />
+    )}
+    </>
   );
 }
 
@@ -632,5 +650,99 @@ function RecursosEditor({
         </div>
       )}
     </div>
+  );
+}
+
+function SearchNumbersModal({
+  open,
+  onClose,
+  onPurchase,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onPurchase: (phoneNumber: string) => Promise<void>;
+}) {
+  const [country, setCountry] = React.useState("US");
+  const [areaCode, setAreaCode] = React.useState("");
+  const [loading, setLoading] = React.useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [results, setResults] = React.useState<any[]>([]);
+
+  const search = async () => {
+    setLoading(true);
+    try {
+      const q = new URLSearchParams({ countryCode: country });
+      if (areaCode) q.append("areaCode", areaCode);
+      const res = await ApiClient.get<{ numbers: any[] }>(`/api/phone-numbers/search?${q.toString()}`);
+      setResults(res.numbers || []);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>Buscar Números Disponibles</DialogTitle>
+          <DialogDescription>
+            Busca y selecciona un número telefónico para tu negocio.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>País</Label>
+              <Select value={country} onValueChange={setCountry}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="US">Estados Unidos</SelectItem>
+                  <SelectItem value="MX">México</SelectItem>
+                  <SelectItem value="CO">Colombia</SelectItem>
+                  <SelectItem value="ES">España</SelectItem>
+                  <SelectItem value="EC">Ecuador</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Código de área (Opcional)</Label>
+              <Input
+                placeholder="Ej. 212"
+                value={areaCode}
+                onChange={(e) => setAreaCode(e.target.value)}
+              />
+            </div>
+          </div>
+          <Button onClick={search} disabled={loading}>
+            {loading ? "Buscando..." : "Buscar números"}
+          </Button>
+
+          {results.length > 0 && (
+            <ScrollArea className="h-64 mt-4 rounded-md border p-2">
+              <div className="space-y-2">
+                {results.map((n) => (
+                  <div key={n.phone_number} className="flex items-center justify-between p-2 border rounded-md">
+                    <div>
+                      <div className="font-mono text-sm font-semibold">{n.phone_number}</div>
+                      <div className="text-xs text-muted-foreground">{n.locality || "N/A"}</div>
+                    </div>
+                    <Button size="sm" onClick={() => onPurchase(n.phone_number)}>
+                      Comprar
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+          )}
+          {results.length === 0 && !loading && (
+             <div className="text-sm text-center text-muted-foreground mt-4">Busca para ver los resultados disponibles.</div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

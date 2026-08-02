@@ -19,29 +19,42 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ numbers });
 }
 
+import { verificarJwt } from "@/lib/auth-utils";
+
 /**
  * POST /api/phone-numbers
- * Compra un número real vía Telnyx (vía Express internal API).
- * Body: { userId, countryCode, areaCode }
+ * Compra un número nuevo en el Express (delegado).
+ * Body: { userId, phoneNumber }
  */
 export async function POST(req: NextRequest) {
-  const body = await req.json();
-  const val = validate(purchasePhoneSchema, body);
-  if (val.error) return val.error;
-  const { userId, countryCode, areaCode } = val.data!;
+  const authHeader = req.headers.get("authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  }
 
   try {
+    const token = authHeader.slice(7);
+    verificarJwt(token); // Valida firma
+  } catch (e) {
+    return NextResponse.json({ error: "Token inválido" }, { status: 401 });
+  }
+
+  try {
+    const body = await req.json();
     const expressUrl = process.env.DOMINIO_EXPRESS || "http://localhost:3001";
     const internalApiKey = process.env.INTERNAL_API_KEY || "dev-internal-key";
-    
+
+    // Petición al backend de Express
     const response = await fetch(`${expressUrl}/internal/telnyx/purchase-number`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-internal-api-key": internalApiKey,
-        "x-user-id": userId,
       },
-      body: JSON.stringify({ userId, countryCode, areaCode })
+      body: JSON.stringify({
+        userId: body.userId,
+        phoneNumber: body.phoneNumber,
+      }),
     });
 
     if (!response.ok) {
@@ -49,20 +62,9 @@ export async function POST(req: NextRequest) {
       throw new Error(err.error || `HTTP ${response.status}`);
     }
     
-    const result = (await response.json()) as { phoneNumber: string; telnyxId: string };
-
-    // Guardar en BD local
-    const phone = await db.phoneNumber.create({
-      data: {
-        userId,
-        phoneNumber: result.phoneNumber,
-        countryCode,
-        telnyxPhoneSid: result.telnyxId,
-        isActive: true,
-      },
-    });
-
-    return NextResponse.json({ phone });
+    const result = await response.json();
+    // Express backend already creates the DB record, so we just return the result.
+    return NextResponse.json({ phone: result });
   } catch (e) {
     console.error("[phone-numbers] Error en POST:", (e as Error).message);
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });

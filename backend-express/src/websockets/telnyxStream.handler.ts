@@ -12,6 +12,7 @@ import path from "path";
 import type { WebSocket } from "ws";
 import g711 from "g711";
 import { crearSesionGemini, procesarMensajesGemini } from "./gemini.handler";
+const MODELO = process.env.GEMINI_MODEL || "gemini-2.0-flash-exp";
 import { transcodificarTelefoníaAGemini, transcodificarGeminiATelefonía } from "../utils/audioTranscoder";
 import { hangupCall } from "../services/telnyx.service";
 import { crearDetectorVoz, type DetectorVoz } from "../services/vad.service";

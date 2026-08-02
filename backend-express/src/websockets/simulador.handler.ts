@@ -13,7 +13,7 @@ const ai = (process.env.GEMINI_API_KEY
 
 const live = ai.live as any;
 
-const MODELO = "gemini-3.1-flash-live-preview";
+const MODELO = process.env.GEMINI_MODEL || "gemini-2.0-flash-exp";
 
 interface SesionSimulador {
   ws: WebSocket;

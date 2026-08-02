@@ -39,7 +39,7 @@ const ai = process.env.GEMINI_API_KEY
   ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
   : null;
 
-const MODELO = "gemini-3.1-flash-live-preview";
+const MODELO = process.env.GEMINI_MODEL || "gemini-2.0-flash-exp";
 
 export type SesionGemini = Session;
 

@@ -11,13 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 
-interface UsuarioDemo {
-  id: string;
-  email: string;
-  businessName: string;
-  role: "cliente" | "admin";
-}
-
+// Eliminado interface UsuarioDemo
 export function LoginScreen() {
   const { setUsuario, setTokens, setSeccion } = useAppStore();
   const [email, setEmail] = React.useState("");
@@ -25,18 +19,39 @@ export function LoginScreen() {
   const [loading, setLoading] = React.useState(false);
   const [modo, setModo] = React.useState<"login" | "register">("login");
   const [businessName, setBusinessName] = React.useState("");
-  const [usuariosDemo, setUsuariosDemo] = React.useState<UsuarioDemo[]>([]);
   const [forgotModalOpen, setForgotModalOpen] = React.useState(false);
   const [forgotEmail, setForgotEmail] = React.useState("");
   const [forgotLoading, setForgotLoading] = React.useState(false);
 
   React.useEffect(() => {
-    ApiClient.get<{ clientes: UsuarioDemo[]; admin: UsuarioDemo[] }>(
-      "/api/users"
-    ).then((data) => {
-      setUsuariosDemo([...data.admin, ...data.clientes]);
-    });
+    // Check URL params for verification status
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("verificado") === "ok") {
+        toast.success("Tu cuenta ha sido verificada correctamente. Ya puedes iniciar sesión.");
+        // Clean URL to prevent showing toast again on reload
+        window.history.replaceState({}, document.title, window.location.pathname);
+      } else if (params.get("error") === "token_requerido") {
+        toast.error("El enlace de verificación no es válido.");
+      } else if (params.get("error") === "token_invalido") {
+        toast.error("El enlace de verificación ha expirado o es incorrecto.");
+      } else if (params.get("error") === "ya_verificado") {
+        toast.info("Tu cuenta ya estaba verificada.");
+      }
+    }
   }, []);
+
+  const resendVerification = async (emailToResend: string) => {
+    try {
+      setLoading(true);
+      await ApiClient.post<{ mensaje: string }>("/api/auth/resend-verification", { email: emailToResend });
+      toast.success("Enlace reenviado. Revisa tu bandeja de entrada.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const loginReal = async () => {
     if (!email || !password) {
@@ -55,7 +70,18 @@ export function LoginScreen() {
       setSeccion(res.user.role === "admin" ? "admin-metricas" : "dashboard");
       toast.success(`Bienvenido, ${res.user.businessName || res.user.email}`);
     } catch (e) {
-      toast.error((e as Error).message);
+      const msg = (e as Error).message;
+      if (msg === "Cuenta no verificada. Revisa tu email.") {
+        toast.error(msg, {
+          action: {
+            label: "Reenviar correo",
+            onClick: () => resendVerification(email)
+          },
+          duration: 10000,
+        });
+      } else {
+        toast.error(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -85,22 +111,7 @@ export function LoginScreen() {
     }
   };
 
-  const loginDemo = async (usuarioDemo?: UsuarioDemo) => {
-    setLoading(true);
-    try {
-      const target = usuarioDemo?.id;
-      const res = await ApiClient.post<{
-        user: Usuario;
-      }>("/api/session", target ? { userId: target } : {});
-      setUsuario(res.user);
-      setSeccion(res.user.role === "admin" ? "admin-metricas" : "dashboard");
-      toast.success(`Bienvenido, ${res.user.businessName || res.user.email}`);
-    } catch (e) {
-      toast.error("Error al iniciar sesión: " + (e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Eliminado loginDemo
 
   const handleForgotPassword = async () => {
     if (!forgotEmail) {
@@ -221,90 +232,53 @@ export function LoginScreen() {
               </button>
             </div>
 
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t border-border" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-card px-2 text-muted-foreground">
-                  Acceso rápido demo
-                </span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-2 max-h-64 overflow-y-auto wa-scroll">
-              {usuariosDemo.map((u) => (
-                <button
-                  key={u.id}
-                  onClick={() => loginDemo(u)}
-                  disabled={loading}
-                  className="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors text-left"
-                >
-                  <div
-                    className={`h-9 w-9 rounded-full flex items-center justify-center text-white text-xs font-semibold ${
-                      u.role === "admin" ? "bg-amber-600" : "bg-primary"
-                    }`}
-                  >
-                    {u.role === "admin" ? <Shield className="h-4 w-4" /> : (u.businessName || u.email || "").slice(0, 2)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold truncate">{u.businessName || "Sin Nombre"}</div>
-                    <div className="text-xs text-muted-foreground truncate">{u.email}</div>
-                  </div>
-                  <Badge variant={u.role === "admin" ? "default" : "secondary"}>
-                    {u.role}
-                  </Badge>
-                </button>
-              ))}
-</div>
+            {/* Eliminado sección demo */}
            </CardContent>
          </Card>
        </div>
+
+       {/* Modal Recuperar Contraseña */}
+       {forgotModalOpen && (
+         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+           <div className="w-full max-w-md bg-card rounded-xl shadow-xl p-6 space-y-4">
+             <div className="flex items-center justify-between">
+               <h3 className="text-lg font-semibold">Recuperar contraseña</h3>
+               <button
+                 onClick={() => { setForgotModalOpen(false); setForgotEmail(""); }}
+                 className="text-muted-foreground hover:text-foreground"
+               >
+                 <X className="h-5 w-5" />
+               </button>
+             </div>
+             <AlertCircle className="h-10 w-10 text-primary mx-auto" />
+             <p className="text-center text-sm text-muted-foreground">
+               Ingresa tu email y te enviaremos un enlace para restablecer tu contraseña.
+             </p>
+             <div className="space-y-2">
+               <Label htmlFor="forgotEmail">Correo electrónico</Label>
+               <div className="relative">
+                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                 <Input
+                   id="forgotEmail"
+                   type="email"
+                   placeholder="tu@negocio.com"
+                   className="pl-9"
+                   value={forgotEmail}
+                   onChange={(e) => setForgotEmail(e.target.value)}
+                   autoFocus
+                 />
+               </div>
+             </div>
+             <Button
+               className="w-full"
+               onClick={handleForgotPassword}
+               disabled={forgotLoading || !forgotEmail}
+             >
+               {forgotLoading ? "Enviando..." : "Enviar enlace de recuperación"}
+             </Button>
+           </div>
+         </div>
+       )}
      </div>
    );
-
-   // Modal Recuperar Contraseña
-   if (forgotModalOpen) {
-     return (
-       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-         <div className="w-full max-w-md bg-card rounded-xl shadow-xl p-6 space-y-4">
-           <div className="flex items-center justify-between">
-             <h3 className="text-lg font-semibold">Recuperar contraseña</h3>
-             <button
-               onClick={() => { setForgotModalOpen(false); setForgotEmail(""); }}
-               className="text-muted-foreground hover:text-foreground"
-             >
-               <X className="h-5 w-5" />
-             </button>
-           </div>
-           <AlertCircle className="h-10 w-10 text-primary mx-auto" />
-           <p className="text-center text-sm text-muted-foreground">
-             Ingresa tu email y te enviaremos un enlace para restablecer tu contraseña.
-           </p>
-           <div className="space-y-2">
-             <Label htmlFor="forgotEmail">Correo electrónico</Label>
-             <div className="relative">
-               <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-               <Input
-                 id="forgotEmail"
-                 type="email"
-                 placeholder="tu@negocio.com"
-                 className="pl-9"
-                 value={forgotEmail}
-                 onChange={(e) => setForgotEmail(e.target.value)}
-                 autoFocus
-               />
-             </div>
-           </div>
-           <Button
-             className="w-full"
-             onClick={handleForgotPassword}
-             disabled={forgotLoading || !forgotEmail}
-           >
-             {forgotLoading ? "Enviando..." : "Enviar enlace de recuperación"}
-           </Button>
-         </div>
-       </div>
-     );
-   }
- }
+}

@@ -51,6 +51,11 @@ export async function POST(req: NextRequest) {
       try {
         const expressUrl = process.env.DOMINIO_EXPRESS || "http://localhost:3001";
         const internalApiKey = process.env.INTERNAL_API_KEY || "dev-internal-key";
+        
+        // Timeout de 3 segundos
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+
         const response = await fetch(`${expressUrl}/internal/telnyx/create-child-account`, {
           method: "POST",
           headers: { 
@@ -61,8 +66,10 @@ export async function POST(req: NextRequest) {
             businessName: user.businessName || user.email,
             email,
             webhookBaseUrl: expressUrl,
-          })
+          }),
+          signal: controller.signal,
         });
+        clearTimeout(timeoutId);
         
         if (!response.ok) {
            const err = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
@@ -107,6 +114,10 @@ export async function POST(req: NextRequest) {
     try {
       const expressUrl = process.env.DOMINIO_EXPRESS || "http://localhost:3001";
       const internalApiKey = process.env.INTERNAL_API_KEY || "dev-internal-key";
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      
       await fetch(`${expressUrl}/internal/email`, {
         method: "POST",
         headers: { 
@@ -116,10 +127,12 @@ export async function POST(req: NextRequest) {
         body: JSON.stringify({
           to: email,
           subject: "Verifica tu cuenta - VozIA",
-          text: `Haz clic aquí para verificar tu cuenta: ${frontendUrl}/verify-email?token=${verificationToken}`,
-          html: `<p>Bienvenido a VozIA. Haz clic <a href="${frontendUrl}/verify-email?token=${verificationToken}">aquí</a> para verificar tu cuenta.</p>`
-        })
+          text: `Haz clic aquí para verificar tu cuenta: ${frontendUrl}/api/auth/verify?token=${verificationToken}`,
+          html: `<p>Bienvenido a VozIA. Haz clic <a href="${frontendUrl}/api/auth/verify?token=${verificationToken}">aquí</a> para verificar tu cuenta.</p>`
+        }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
     } catch (e) {
       console.error("Error enviando email verificación:", (e as Error).message);
     }

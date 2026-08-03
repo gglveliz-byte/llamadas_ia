@@ -49,7 +49,8 @@ export function AppShell() {
           setWalletSaldo(data.wallet.saldo);
         }
       } catch {
-        // Sin sesión — mostrar login
+        // Sin sesión o sesión expirada — limpiar estado para mostrar login
+        useAppStore.getState().logout();
       } finally {
         setCargandoSesion(false);
       }

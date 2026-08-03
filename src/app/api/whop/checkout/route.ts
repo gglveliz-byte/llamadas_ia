@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
     const checkout = await whop.checkoutConfigurations.create({
       account_id: whopCompanyId,
       plan: {
-        title: `Recarga ${paquete.nombre}`,
+        title: `Recarga ${paquete.nombre}`.substring(0, 30),
         description: `Paquete de recarga ${paquete.nombre} - ${paquete.saldoOtorgado.toFixed(0)} USD saldo por ${paquete.montoRecarga.toFixed(2)} USD`,
         initial_price: paquete.montoRecarga.toNumber(),
         currency: "usd",
@@ -62,7 +62,10 @@ export async function POST(req: NextRequest) {
         user_id: userId,
         package_id: String(packageId),
       },
-      redirect_url: `${frontendUrl}/dashboard?recarga=exito`,
+      // Whop requiere https:// y un dominio válido (rechaza localhost)
+      // Usamos lvh.me que redirige a localhost (127.0.0.1)
+      redirect_url: frontendUrl.replace("http://localhost", "https://lvh.me") + "/dashboard?recarga=exito",
+      cancel_url: frontendUrl.replace("http://localhost", "https://lvh.me") + "/dashboard?recarga=cancelado",
     });
 
     let checkoutUrl = checkout.purchase_url;

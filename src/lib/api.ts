@@ -46,11 +46,17 @@ export class ApiClient {
               throw new Error(errBody.error || `HTTP ${retryRes.status}`);
             }
             return retryRes.json() as Promise<T>;
+          } else {
+            useAppStore.getState().logout();
+            throw new Error("Sesión expirada. Inicia sesión de nuevo.");
           }
         } catch {
           useAppStore.getState().logout();
           throw new Error("Sesión expirada. Inicia sesión de nuevo.");
         }
+      } else {
+        useAppStore.getState().logout();
+        throw new Error("Sesión expirada. Inicia sesión de nuevo.");
       }
     }
 

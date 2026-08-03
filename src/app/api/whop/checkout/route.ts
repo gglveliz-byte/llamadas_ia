@@ -61,10 +61,8 @@ export async function POST(req: NextRequest) {
         user_id: userId,
         package_id: String(packageId),
       },
-      // Whop requiere https:// y un dominio válido (rechaza localhost)
       // Usamos lvh.me que redirige a localhost (127.0.0.1)
       redirect_url: frontendUrl.replace("http://localhost", "https://lvh.me") + "/dashboard?recarga=exito",
-      cancel_url: frontendUrl.replace("http://localhost", "https://lvh.me") + "/dashboard?recarga=cancelado",
     });
 
     let checkoutUrl = checkout.purchase_url;

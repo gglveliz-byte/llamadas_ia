@@ -56,9 +56,9 @@ export function AdminTarifasSection() {
     try {
       await ApiClient.post("/api/admin/packages", {
         nombre: nuevo.nombre,
-        montoRecarga: nuevo.montoRecarga,
-        saldoOtorgado: nuevo.saldoOtorgado,
-        precioPorMinuto: nuevo.precioPorMinuto,
+        montoRecarga: Number(nuevo.montoRecarga),
+        saldoOtorgado: Number(nuevo.saldoOtorgado),
+        precioPorMinuto: Number(nuevo.precioPorMinuto),
         activo: true,
       });
       toast.success("Paquete creado");
@@ -71,9 +71,13 @@ export function AdminTarifasSection() {
   };
 
   const guardarEdicion = async (id: number) => {
-    const cambios = editando[id];
+    const cambios = { ...editando[id] };
     if (!cambios || Object.keys(cambios).length === 0) return;
     try {
+      if (typeof cambios.montoRecarga === "string") cambios.montoRecarga = Number(cambios.montoRecarga);
+      if (typeof cambios.saldoOtorgado === "string") cambios.saldoOtorgado = Number(cambios.saldoOtorgado);
+      if (typeof cambios.precioPorMinuto === "string") cambios.precioPorMinuto = Number(cambios.precioPorMinuto);
+      
       await ApiClient.patch("/api/admin/packages", { id, ...cambios });
       toast.success("Paquete actualizado");
       setEditando((prev) => {

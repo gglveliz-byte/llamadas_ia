@@ -5,7 +5,6 @@ import { Whop } from "@whop/sdk";
 
 const whop = new Whop({
   apiKey: process.env.WHOP_API_KEY || "dummy_api_key",
-  environment: process.env.NEXT_PUBLIC_SANDBOX_MODE === "true" ? "sandbox" : "production",
 });
 
 export async function POST(req: NextRequest) {

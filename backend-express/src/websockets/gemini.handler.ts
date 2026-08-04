@@ -87,6 +87,10 @@ export async function crearSesionGemini(
               }
             }
           },
+          automaticActivityDetection: {
+            disabled: false,
+            silenceDurationMs: 500
+          },
           systemInstruction: { parts: [{ text: systemPrompt }] },
           tools: [{ functionDeclarations: herramientas[0].functionDeclarations }]
         }

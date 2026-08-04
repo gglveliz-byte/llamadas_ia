@@ -178,8 +178,7 @@ export function SimuladorSection() {
   const detenerGrabacion = () => {
     if (wsRef.current) {
       wsRef.current.send(JSON.stringify({ tipo: "detener" }));
-      wsRef.current.close();
-      wsRef.current = null;
+      toast.info("Guardando información, espera un momento...");
     }
     setGrabando(false);
     setConectado(false);

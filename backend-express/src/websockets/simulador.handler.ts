@@ -207,6 +207,10 @@ async function iniciarSesionGemini(sesion: SesionSimulador, callSid: string): Pr
               }
             }
           },
+          automaticActivityDetection: {
+            disabled: false,
+            silenceDurationMs: 500
+          },
           systemInstruction: { parts: [{ text: systemPrompt }] },
           tools: [{ functionDeclarations: obtenerHerramientasSimulador() }]
         }

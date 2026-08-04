@@ -3,7 +3,7 @@ services:
     name: backend-express
     runtime: node
     region: ohio
-    buildCommand: cd backend-express && npm install && npm run db:generate && npm run build
+    buildCommand: cd backend-express && npm install && npm run db:generate && cp -r ../node_modules/@prisma/client/* node_modules/@prisma/client/ && npm run build
     startCommand: cd backend-express && node dist/index.js
     healthCheckPath: /health
     envVars:

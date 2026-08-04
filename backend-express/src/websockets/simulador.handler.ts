@@ -127,7 +127,24 @@ export function registrarSimuladorHandler(wss: WebSocketServer): void {
         }
 
         if (msg.tipo === "detener") {
-          await cerrarSimulador(callSid);
+          if (sesion.gemini && sesion.gemini.readyState === WebSocket.OPEN) {
+            enviarTexto(sesion.ws, "Finalizando entrevista. Guardando la configuración...");
+            sesion.gemini.send(JSON.stringify({
+              clientContent: {
+                turns: [{
+                  role: "user",
+                  parts: [{ text: "INSTRUCCIÓN DEL SISTEMA: El usuario ha presionado el botón de finalizar. Resume la información recopilada hasta ahora y llama a la herramienta guardar_contexto INMEDIATAMENTE. No hagas más preguntas." }]
+                }],
+                turnComplete: true
+              }
+            }));
+            // Forzar cierre tras 6 segundos para dar tiempo a que guarde
+            setTimeout(() => {
+              cerrarSimulador(callSid).catch(() => {});
+            }, 6000);
+          } else {
+            await cerrarSimulador(callSid);
+          }
           return;
         }
       } catch (e) {
@@ -180,6 +197,7 @@ async function iniciarSesionGemini(sesion: SesionSimulador, callSid: string): Pr
       const setupMsg = {
         setup: {
           model: MODELO,
+          turnCoverage: "TURN_INCLUDES_ONLY_ACTIVITY",
           generationConfig: {
             responseModalities: ["AUDIO"],
             speechConfig: {
@@ -209,7 +227,13 @@ async function iniciarSesionGemini(sesion: SesionSimulador, callSid: string): Pr
           return;
         }
 
-        if (msg.serverContent && msg.serverContent.modelTurn && msg.serverContent.modelTurn.parts) {
+        if (msg.serverContent) {
+          if (msg.serverContent.interrupted) {
+            if (sesion.ws.readyState === WebSocket.OPEN) {
+              sesion.ws.send(JSON.stringify({ tipo: "interrumpir" }));
+            }
+          }
+          if (msg.serverContent.modelTurn && msg.serverContent.modelTurn.parts) {
           for (const part of msg.serverContent.modelTurn.parts) {
             if (part.inlineData && part.inlineData.mimeType?.startsWith("audio")) {
               enviarAudio(sesion.ws, part.inlineData.data, part.inlineData.mimeType);
@@ -256,6 +280,7 @@ async function iniciarSesionGemini(sesion: SesionSimulador, callSid: string): Pr
               }));
             }
           }
+        }
         }
       } catch (e) {
         logger.error({ error: (e as Error).message }, "Error procesando mensaje de Gemini");

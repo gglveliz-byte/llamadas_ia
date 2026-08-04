@@ -77,6 +77,7 @@ export async function crearSesionGemini(
       const setupMsg = {
         setup: {
           model: MODELO,
+          turnCoverage: "TURN_INCLUDES_ONLY_ACTIVITY",
           generationConfig: {
             responseModalities: ["AUDIO"],
             speechConfig: {

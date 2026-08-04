@@ -133,6 +133,12 @@ export function SimuladorSection() {
           setMensajes((prev) => [...prev, { rol: "ai", texto: msg.texto, ts: Date.now() }]);
         } else if (msg.tipo === "audio" && msg.base64) {
           await queueAudio(msg.base64);
+        } else if (msg.tipo === "interrumpir") {
+          // Si el servidor avisa que el usuario interrumpió, limpiamos el audio pendiente
+          if (audioContext && audioContext.state !== "closed") {
+            audioContext.close();
+            audioContext = null;
+          }
         }
       } catch {
         // ignore

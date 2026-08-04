@@ -78,6 +78,13 @@ export async function crearSesionGemini(
         // @ts-expect-error - tools type varies by SDK version
         tools: [{ functionDeclarations: herramientas[0].functionDeclarations }],
         thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: {
+              voiceName: settings.aiVoice || "Puck",
+            },
+          },
+        },
       },
     });
 

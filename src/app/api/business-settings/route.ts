@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
       settings: {
         userId,
         aiLanguage: "es",
+        aiVoice: "Puck",
         bookingMode: "hours",
         defaultDurationMinutes: 30,
         checkInTime: "15:00",

@@ -11,8 +11,6 @@ const ai = (process.env.GEMINI_API_KEY
   ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
   : null) as any;
 
-const live = ai.live as any;
-
 const MODELO = process.env.GEMINI_MODEL || "models/gemini-3.1-flash-live-preview";
 
 interface SesionSimulador {
@@ -181,6 +179,13 @@ const liveConnect = ai.live.connect as any;
         systemInstruction: { parts: [{ text: systemPrompt }] },
         tools: [{ functionDeclarations: obtenerHerramientasSimulador(sesion, callSid)[0].functionDeclarations }],
         thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: {
+              voiceName: settings?.aiVoice || "Puck",
+            },
+          },
+        },
       },
       callbacks: {
         onopen: () => {

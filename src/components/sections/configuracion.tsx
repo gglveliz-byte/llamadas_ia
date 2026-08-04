@@ -206,7 +206,7 @@ export function ConfiguracionSection() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div className="space-y-2">
                 <Label className="flex items-center gap-1">
                   <Globe className="h-3.5 w-3.5" /> Idioma de la IA
@@ -227,6 +227,30 @@ export function ConfiguracionSection() {
                         {i.label}
                       </SelectItem>
                     ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="flex items-center gap-1">
+                  <Mic className="h-3.5 w-3.5" /> Voz de la IA
+                </Label>
+                <Select
+                  value={settings.aiVoice}
+                  onValueChange={(v) => {
+                    setSettings({ ...settings, aiVoice: v });
+                    guardar({ aiVoice: v });
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Puck">Puck (Masculina)</SelectItem>
+                    <SelectItem value="Charon">Charon (Masculina profunda)</SelectItem>
+                    <SelectItem value="Fenrir">Fenrir (Masculina grave)</SelectItem>
+                    <SelectItem value="Kore">Kore (Femenina clara)</SelectItem>
+                    <SelectItem value="Aoede">Aoede (Femenina cálida)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

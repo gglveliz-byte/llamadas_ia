@@ -89,11 +89,49 @@ export function SimuladorSection() {
       ws.send(JSON.stringify({ tipo: "iniciar" }));
     };
 
-    ws.onmessage = (e) => {
+    // --- MOTOR DE REPRODUCCIÓN DE AUDIO ---
+    let audioContext: AudioContext | null = null;
+    let nextPlayTime = 0;
+
+    const initAudio = () => {
+      if (!audioContext) {
+        audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+      }
+    };
+
+    const queueAudio = async (base64Data: string) => {
+      initAudio();
+      if (audioContext!.state === 'suspended') await audioContext!.resume();
+
+      const binary = atob(base64Data);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+      const pcm16 = new Int16Array(bytes.buffer);
+      const float32 = new Float32Array(pcm16.length);
+      for (let i = 0; i < pcm16.length; i++) float32[i] = pcm16[i] / 0x7FFF;
+
+      const buffer = audioContext!.createBuffer(1, float32.length, 24000);
+      buffer.getChannelData(0).set(float32);
+
+      const source = audioContext!.createBufferSource();
+      source.buffer = buffer;
+      source.connect(audioContext!.destination);
+
+      if (nextPlayTime < audioContext!.currentTime) {
+        nextPlayTime = audioContext!.currentTime;
+      }
+      source.start(nextPlayTime);
+      nextPlayTime += buffer.duration;
+    };
+
+    ws.onmessage = async (e) => {
       try {
         const msg = JSON.parse(e.data);
         if (msg.tipo === "texto") {
           setMensajes((prev) => [...prev, { rol: "ai", texto: msg.texto, ts: Date.now() }]);
+        } else if (msg.tipo === "audio" && msg.base64) {
+          await queueAudio(msg.base64);
         }
       } catch {
         // ignore
@@ -103,6 +141,10 @@ export function SimuladorSection() {
     ws.onclose = () => {
       setConectado(false);
       setGrabando(false);
+      if (audioContext) {
+        audioContext.close();
+        audioContext = null;
+      }
     };
 
     ws.onerror = () => {

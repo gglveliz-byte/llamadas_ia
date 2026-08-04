@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
         package_id: String(packageId),
       },
       // Usamos lvh.me que redirige a localhost (127.0.0.1)
-      redirect_url: frontendUrl.replace("http://localhost", "https://lvh.me") + "/dashboard?recarga=exito",
+      redirect_url: frontendUrl.replace("http://localhost", "https://lvh.me") + "/?recarga=exito",
     });
 
     let checkoutUrl = checkout.purchase_url;

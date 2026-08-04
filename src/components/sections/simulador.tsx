@@ -323,6 +323,7 @@ export function SimuladorSection() {
               onAudioChunk={enviarAudio}
               onStart={() => {}}
               onStop={detenerGrabacion}
+              autoStart
             />
           ) : (
             <button

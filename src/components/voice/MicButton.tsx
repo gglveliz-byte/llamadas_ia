@@ -12,11 +12,12 @@ interface MicButtonProps {
   onStop: () => void;
   disabled?: boolean;
   className?: string;
+  autoStart?: boolean;
 }
 
 const CHUNK_INTERVAL_MS = 100;
 
-export function MicButton({ onAudioChunk, onStart, onStop, disabled, className }: MicButtonProps) {
+export function MicButton({ onAudioChunk, onStart, onStop, disabled, className, autoStart }: MicButtonProps) {
   const [estado, setEstado] = React.useState<EstadoGrabacion>("idle");
   const [error, setError] = React.useState("");
   const streamRef = React.useRef<MediaStream | null>(null);
@@ -25,6 +26,7 @@ export function MicButton({ onAudioChunk, onStart, onStop, disabled, className }
   const processorRef = React.useRef<ScriptProcessorNode | null>(null);
   const intervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const chunksRef = React.useRef<Float32Array[]>([]);
+  const autoStartedRef = React.useRef(false);
 
   const toggleGrabacion = async () => {
     if (estado === "grabando") {
@@ -116,7 +118,12 @@ export function MicButton({ onAudioChunk, onStart, onStop, disabled, className }
     onStop();
   };
 
+  // Auto-start recording on mount if autoStart is true
   React.useEffect(() => {
+    if (autoStart && !autoStartedRef.current && estado === "idle") {
+      autoStartedRef.current = true;
+      toggleGrabacion();
+    }
     return () => {
       if (estado === "grabando") detenerGrabacion();
     };

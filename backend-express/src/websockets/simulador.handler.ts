@@ -1,4 +1,5 @@
 import { WebSocketServer, WebSocket } from "ws";
+import { RealTimeVAD } from "@ericedouard/vad-node-realtime";
 import { IncomingMessage } from "http";
 import { db } from "../models/database.pool";
 import { guardarContexto, obtenerContextoNegocio } from "../services/rag.service";
@@ -17,6 +18,7 @@ interface SesionSimulador {
   contextoGuardado: string | null;
   conversacionBuffer: string[];
   transcripts: Array<{ texto: string; rol: string; ts: number }>;
+  vad?: any;
 }
 
 const sesiones = new Map<string, SesionSimulador>();
@@ -72,6 +74,10 @@ export function registrarSimuladorHandler(wss: WebSocketServer): void {
       if (!s) return;
       limpiarTimeouts();
       try {
+        if (s.vad) {
+          s.vad.destroy?.();
+          s.vad = null;
+        }
         if (s.gemini) {
           s.gemini.close();
         }
@@ -108,6 +114,20 @@ export function registrarSimuladorHandler(wss: WebSocketServer): void {
         const msg = JSON.parse(data.toString());
 
         if (msg.tipo === "audio" && msg.base64 && sesion.gemini && sesion.gemini.readyState === WebSocket.OPEN) {
+          if (sesion.vad) {
+            try {
+              const buffer = Buffer.from(msg.base64, "base64");
+              const int16 = new Int16Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / 2);
+              const float32 = new Float32Array(int16.length);
+              for (let i = 0; i < int16.length; i++) {
+                float32[i] = int16[i] / 32768.0;
+              }
+              sesion.vad.processAudio(float32);
+            } catch (e) {
+              logger.warn({ error: (e as Error).message }, "Error procesando VAD");
+            }
+          }
+
           sesion.gemini.send(JSON.stringify({
             realtimeInput: {
               audio: {
@@ -121,7 +141,7 @@ export function registrarSimuladorHandler(wss: WebSocketServer): void {
         }
 
         if (msg.tipo === "iniciar") {
-          await iniciarSesionGemini(sesion, callSid);
+          await iniciarSesionGemini(sesion, callSid, cerrarSimulador);
           resetearTimeouts();
           return;
         }
@@ -138,10 +158,11 @@ export function registrarSimuladorHandler(wss: WebSocketServer): void {
                 turnComplete: true
               }
             }));
-            // Forzar cierre tras 6 segundos para dar tiempo a que guarde
-            setTimeout(() => {
+            // Forzar cierre tras 20 segundos para dar tiempo a que guarde
+            if (sesion.timeoutCierre) clearTimeout(sesion.timeoutCierre);
+            sesion.timeoutCierre = setTimeout(() => {
               cerrarSimulador(callSid).catch(() => {});
-            }, 6000);
+            }, 20000);
           } else {
             await cerrarSimulador(callSid);
           }
@@ -174,7 +195,7 @@ function enviarAudio(ws: WebSocket, base64: string, mimeType: string): void {
   ws.send(JSON.stringify({ tipo: "audio", base64, mimeType }));
 }
 
-async function iniciarSesionGemini(sesion: SesionSimulador, callSid: string): Promise<void> {
+async function iniciarSesionGemini(sesion: SesionSimulador, callSid: string, cerrarSimulador: (id: string) => Promise<void>): Promise<void> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     enviarTexto(sesion.ws, "Modo demo: GEMINI_API_KEY no configurada. Usa el textarea para editar el contexto manualmente.");
@@ -187,6 +208,24 @@ async function iniciarSesionGemini(sesion: SesionSimulador, callSid: string): Pr
     const idioma = settings?.aiLanguage || "es";
     const systemPrompt = construirPromptEntrevista(contexto, idioma);
     const aiVoice = settings?.aiVoice || "Puck";
+
+    try {
+      sesion.vad = await RealTimeVAD.new({
+        onSpeechEnd: () => {
+          if (sesion.gemini && sesion.gemini.readyState === WebSocket.OPEN) {
+            logger.info({ userId: sesion.userId }, "VAD: Fin de habla detectado, enviando turnComplete");
+            sesion.gemini.send(JSON.stringify({
+              clientContent: {
+                turns: [],
+                turnComplete: true
+              }
+            }));
+          }
+        },
+      });
+    } catch (err) {
+      logger.error({ error: (err as Error).message }, "Error inicializando VAD");
+    }
 
     const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${apiKey}`;
     const geminiWs = new WebSocket(wsUrl);
@@ -263,6 +302,14 @@ async function iniciarSesionGemini(sesion: SesionSimulador, callSid: string): Pr
                 await guardarContexto(sesion.userId, rawContext, "save");
                 emitirSSE(sesion.userId, "contexto_guardado", { contexto: rawContext });
                 logger.info({ userId: sesion.userId }, "Contexto guardado desde simulador");
+                
+                // Si había un cierre programado, lo cancelamos y cerramos inmediatamente
+                if (sesion.timeoutCierre) {
+                  clearTimeout(sesion.timeoutCierre);
+                  setTimeout(() => {
+                    cerrarSimulador(callSid).catch(() => {});
+                  }, 1000); // 1 segundo de gracia para enviar el mensaje de confirmación
+                }
               }
 
               // Send function response back

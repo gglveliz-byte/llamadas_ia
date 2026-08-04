@@ -2,6 +2,7 @@
  * Servicio de Audit Log - Log de acciones administrativas.
  * Cumple spec sección hardening.
  */
+import { v4 as uuidv4 } from "uuid";
 import { db } from "../models/database.pool";
 import { logger } from "../utils/logger";
 
@@ -77,7 +78,7 @@ export async function getAuditLogs(
   params.push(limit, offset);
 
   try {
-    const results = await (await import("../models/database.pool")).db.$queryRawUnsafe<AuditLogEntry[]>(query, ...params);
+    const results = (await db.$queryRawUnsafe(query, ...params)) as AuditLogEntry[];
     return results || [];
   } catch (e) {
     logger.error({ error: (e as Error).message }, "Failed to fetch audit logs");
@@ -87,14 +88,14 @@ export async function getAuditLogs(
 
 export async function getAuditLogStats(): Promise<{ total: number; byAction: Record<string, number> }> {
   try {
-    const totalResult = await (await import("../models/database.pool")).db.$queryRawUnsafe<{ total: bigint }[]>(
+    const totalResult = (await db.$queryRawUnsafe(
       `SELECT COUNT(*) as total FROM audit_logs`
-    );
+    )) as { total: bigint }[];
     const total = totalResult?.[0]?.total ? Number(totalResult[0].total) : 0;
 
-    const byAction = await (await import("../models/database.pool")).db.$queryRawUnsafe<{ action: string; count: bigint }[]>(
+    const byAction = (await db.$queryRawUnsafe(
       `SELECT action, COUNT(*) as count FROM audit_logs GROUP BY action`
-    );
+    )) as { action: string; count: bigint }[];
 
     return {
       total,

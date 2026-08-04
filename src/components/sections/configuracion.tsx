@@ -729,6 +729,27 @@ function SearchNumbersModal({
                   <SelectItem value="CO">Colombia</SelectItem>
                   <SelectItem value="ES">España</SelectItem>
                   <SelectItem value="EC">Ecuador</SelectItem>
+                  <SelectItem value="AR">Argentina</SelectItem>
+                  <SelectItem value="CL">Chile</SelectItem>
+                  <SelectItem value="PE">Perú</SelectItem>
+                  <SelectItem value="BR">Brasil</SelectItem>
+                  <SelectItem value="CA">Canadá</SelectItem>
+                  <SelectItem value="GB">Reino Unido</SelectItem>
+                  <SelectItem value="AU">Australia</SelectItem>
+                  <SelectItem value="FR">Francia</SelectItem>
+                  <SelectItem value="DE">Alemania</SelectItem>
+                  <SelectItem value="IT">Italia</SelectItem>
+                  <SelectItem value="PR">Puerto Rico</SelectItem>
+                  <SelectItem value="DO">República Dominicana</SelectItem>
+                  <SelectItem value="PA">Panamá</SelectItem>
+                  <SelectItem value="CR">Costa Rica</SelectItem>
+                  <SelectItem value="UY">Uruguay</SelectItem>
+                  <SelectItem value="PY">Paraguay</SelectItem>
+                  <SelectItem value="BO">Bolivia</SelectItem>
+                  <SelectItem value="GT">Guatemala</SelectItem>
+                  <SelectItem value="SV">El Salvador</SelectItem>
+                  <SelectItem value="HN">Honduras</SelectItem>
+                  <SelectItem value="NI">Nicaragua</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -753,6 +774,11 @@ function SearchNumbersModal({
                     <div>
                       <div className="font-mono text-sm font-semibold">{n.phone_number}</div>
                       <div className="text-xs text-muted-foreground">{n.locality || "N/A"}</div>
+                      {n.cost_information && (
+                        <div className="text-xs text-green-600 font-medium mt-1">
+                          Alta: ${n.cost_information.upfront_cost} | Mes: ${n.cost_information.monthly_cost} {n.cost_information.currency}
+                        </div>
+                      )}
                     </div>
                     <Button size="sm" onClick={() => onPurchase(n.phone_number)}>
                       Comprar

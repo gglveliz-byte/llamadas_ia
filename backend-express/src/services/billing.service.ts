@@ -104,7 +104,7 @@ export async function debitarLlamada(
     });
   } catch (e) {
     // Carrera: otro request debitó el mismo callSid justo antes
-    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+    if (e && typeof e === "object" && "code" in e && e.code === "P2002") {
       logger.warn({ callSid }, "Carrera de débito detectada - omitiendo cobro duplicado");
       const existente = await db.walletTransaction.findFirst({
         where: { callSid, tipo: "debito" },
@@ -207,7 +207,7 @@ export async function acreditarSaldo(
     });
   } catch (e) {
     // Carrera: otro request acreditó el mismo whopPaymentId justo antes
-    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+    if (e && typeof e === "object" && "code" in e && e.code === "P2002") {
       logger.warn({ whopPaymentId }, "Carrera de recarga detectada - omitiendo crédito duplicado");
       const existente = await db.walletTransaction.findFirst({
         where: { whopPaymentId, tipo: "recarga" },
@@ -269,7 +269,7 @@ export async function reversarSaldo(whopPaymentId: string): Promise<void> {
       logger.info({ userId: txRecarga.userId, whopPaymentId, monto: -montoTx }, "Saldo reversado por reembolso");
     });
   } catch (e) {
-    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
+    if (e && typeof e === "object" && "code" in e && e.code === "P2002") {
       logger.warn({ whopPaymentId }, "Carrera de reversa detectada - omitiendo");
       return;
     }

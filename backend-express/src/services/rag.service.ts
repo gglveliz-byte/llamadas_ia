@@ -72,7 +72,7 @@ export async function obtenerContextoRAG(
 
   try {
     const vectorStr = `[${embedding.join(",")}]`;
-    const results = await db.$queryRawUnsafe<Array<{ raw_context: string; similitud: number }>>(
+    const results = (await db.$queryRawUnsafe(
       `SELECT raw_context, 1 - (embedding <=> $1::vector) AS similitud
        FROM business_memory
        WHERE user_id = $2 AND status = 'activo'
@@ -80,7 +80,7 @@ export async function obtenerContextoRAG(
        LIMIT 3`,
       vectorStr,
       userId
-    );
+    )) as Array<{ raw_context: string; similitud: number }>;
 
     if (results && results.length > 0) {
       const contexto = results.map((r) => r.raw_context).join("\n---\n");
@@ -161,7 +161,7 @@ async function insertarMemoria(
 ): Promise<number> {
   try {
     const vectorStr = `[${embedding.join(",")}]`;
-    const results = await db.$queryRawUnsafe<Array<{ id: number }>>(
+    const results = (await db.$queryRawUnsafe(
       `INSERT INTO business_memory (user_id, raw_context, embedding, status, version)
        VALUES ($1, $2, $3::vector, 'activo', $4)
        RETURNING id`,
@@ -169,7 +169,7 @@ async function insertarMemoria(
       rawContext,
       vectorStr,
       version
-    );
+    )) as Array<{ id: number }>;
     return results?.[0]?.id ?? 0;
   } catch {
     // Fallback sin embedding si falla pgvector
@@ -211,9 +211,7 @@ export async function buscarContextoPorSimilitud(
 
   try {
     const vectorStr = `[${embedding.join(",")}]`;
-    const results = await db.$queryRawUnsafe<
-      Array<{ raw_context: string; similitud: number; version: number }>
-    >(
+    const results = (await db.$queryRawUnsafe(
       `SELECT raw_context, 1 - (embedding <=> $1::vector) AS similitud, version
        FROM business_memory
        WHERE user_id = $2 AND status = 'activo'
@@ -222,7 +220,7 @@ export async function buscarContextoPorSimilitud(
       vectorStr,
       userId,
       limite
-    );
+    )) as Array<{ raw_context: string; similitud: number; version: number }>;
 
     return (results || []).map((r) => ({
       rawContext: r.raw_context,

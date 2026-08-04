@@ -13,6 +13,7 @@ import {
   Info,
   Wifi,
   WifiOff,
+  Code,
 } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import { ApiClient } from "@/lib/api";

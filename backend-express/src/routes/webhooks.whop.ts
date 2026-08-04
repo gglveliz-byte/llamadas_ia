@@ -25,7 +25,7 @@ const whopsdk = new Whop({
  * Recibe eventos de Whop (payment.succeeded, refund.created, etc.)
  */
 whopRouter.post("/", async (req, res) => {
-  const body = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
+  const body = (req as any).rawBody || (typeof req.body === "string" ? req.body : JSON.stringify(req.body));
   const headers = req.headers as Record<string, string>;
 
   let evento;

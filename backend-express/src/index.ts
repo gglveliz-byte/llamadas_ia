@@ -72,7 +72,12 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.raw({ type: "application/xml" }));
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ 
+  limit: "10mb",
+  verify: (req, res, buf) => {
+    (req as any).rawBody = buf.toString();
+  }
+}));
 app.use(express.urlencoded({ extended: true }));
 app.use(async (req, res, next) => {
   try {

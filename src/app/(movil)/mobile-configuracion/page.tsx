@@ -15,7 +15,7 @@ export default function MobileConfigPage() {
   }, []);
 
   const items = [
-    { icon: MessageSquare, label: "Simulador de Voz", desc: "Entrevista con IA", href: "/simulador" },
+    { icon: MessageSquare, label: "Configuración del Negocio", desc: "Entrevista con IA", href: "/simulador" },
     { icon: Globe, label: "Idioma", desc: "Configurar idioma de la IA", href: "/" },
     { icon: Clock, label: "Horarios", desc: "Horario de atención", href: "/" },
     { icon: User, label: "Perfil", desc: usuario?.email ?? "Datos del negocio", href: "/" },

@@ -84,7 +84,7 @@ export default function MobileSimuladorPage() {
   return (
     <div className="flex flex-col h-screen bg-slate-50 dark:bg-[#0b141a]">
       <header className="px-4 py-3 border-b border-white/10 bg-white/80 dark:bg-[#1f2c33]/80 backdrop-blur-sm">
-        <h1 className="text-lg font-bold">Simulador de Voz</h1>
+        <h1 className="text-lg font-bold">Configuración del Negocio</h1>
         <p className="text-xs text-muted-foreground">
           {usuario?.businessName ?? "VozIA"} · Móvil
         </p>

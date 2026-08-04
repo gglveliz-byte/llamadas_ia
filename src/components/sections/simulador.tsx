@@ -165,7 +165,7 @@ export function SimuladorSection() {
       setGrabando(false);
       return;
     }
-    toast.info("Micrófono activo. La IA te guiará en la entrevista.");
+    toast.info("Micrófono activo. El asistente te guiará en la configuración.");
   };
 
   const detenerGrabacion = () => {
@@ -234,7 +234,7 @@ export function SimuladorSection() {
             <div>
               <CardTitle className="text-base flex items-center gap-2">
                 <MessageSquare className="h-4 w-4 text-primary" />
-                Entrevista de Voz
+                Configuración del Negocio
               </CardTitle>
               <CardDescription className="text-xs mt-1">
                 {grabando ? (
@@ -341,11 +341,11 @@ export function SimuladorSection() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="text-base flex items-center gap-2">
-                <Brain className="h-4 w-4 text-primary" />
+                <Code className="h-4 w-4 text-primary" />
                 Información de tu negocio
               </CardTitle>
               <CardDescription className="text-xs mt-1">
-                La IA la recopila durante la entrevista. Puedes editarla cuando quieras.
+                El asistente recopila esto durante la configuración. Puedes editarla cuando quieras.
               </CardDescription>
             </div>
             <div className="flex gap-2">

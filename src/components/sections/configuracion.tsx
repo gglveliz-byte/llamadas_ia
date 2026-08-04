@@ -383,7 +383,7 @@ export function ConfiguracionSection() {
               />
               <p className="text-xs text-muted-foreground">
                 💡 Tip: Para extraer este contexto automáticamente con una entrevista de voz,
-                usa el <strong>Simulador de Voz</strong>.
+                usa el <strong>Configuración del Negocio</strong>.
               </p>
             </div>
 

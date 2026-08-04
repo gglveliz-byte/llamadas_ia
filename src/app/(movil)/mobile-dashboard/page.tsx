@@ -30,7 +30,7 @@ export default function MobileDashboardPage() {
   const items = [
     { icon: Wallet, label: "Saldo", value: `$${saldo.toFixed(2)}`, href: "/" },
     { icon: Calendar, label: "Citas", value: `${citas}`, href: "/" },
-    { icon: MessageSquare, label: "Simulador", value: "Entrevista IA", href: "/simulador" },
+    { icon: MessageSquare, label: "Configurador", value: "Entrevista IA", href: "/simulador" },
     { icon: Settings, label: "Configuración", value: "Ajustes", href: "/mobile-configuracion" },
   ];
 
@@ -65,7 +65,7 @@ export default function MobileDashboardPage() {
             href="/simulador"
             className="block w-full py-3 px-4 bg-primary/10 rounded-lg text-sm font-medium text-primary text-center"
           >
-            Abrir Simulador de Voz
+            Abrir Configuración del Negocio
           </Link>
         </div>
       </div>

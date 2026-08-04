@@ -202,7 +202,10 @@ async function iniciarSesionGemini(sesion: SesionSimulador, callSid: string): Pr
         const msg = JSON.parse(data.toString());
 
         if (msg.setupComplete) {
-          enviarTexto(sesion.ws, "Conectado a Gemini. Iniciando...");
+          enviarTexto(sesion.ws, "Asistente personal de configuración iniciada.");
+          setTimeout(() => {
+            enviarTexto(sesion.ws, "Comienza a hablar ahora.");
+          }, 500);
           return;
         }
 
@@ -278,33 +281,29 @@ function construirPromptEntrevista(contexto: string, idioma: string): string {
 
   if (tieneContexto) {
     return `
-Eres un entrevistador amable para ayudar a dueños de negocios a configurar su asistente de voz IA.
-
-## CONTEXTO ACTUAL
-${contexto}
+Eres un asistente profesional encargado de configurar los detalles de un negocio para un sistema de inteligencia artificial.
 
 ## INSTRUCCIONES
-- Tu rol es ACTUALIZAR el contexto existente.
-- Empieza diciendo: "Ya tengo información de tu negocio. ¿Qué partes quieres actualizar o agregar? También podemos empezar desde cero si prefieres."
-- Si el usuario dice "empezar de cero", responde con "REINICIAR_CONTEXTO" y luego entrevista normalmente.
-- Si el usuario quiere cambiar algo específico, actualiza solo esa parte.
-- Cuando tengas suficiente información, pregunta: "¿Esto sería todo? Te doy un resumen de lo que tenemos hasta ahora."
-- Si el usuario confirma, llama a la herramienta guardar_contexto.
-- Habla en ${idioma === "es" ? "español" : "inglés"}.
+- Empieza la interacción diciendo exactamente: "Hola un gusto, te ayudaré a configurar tu negocio, todo lo que se hable en esta entrevista, es la información que le diré a tus clientes al responder tus llamadas, entonces comienzo a preguntarte sobre tu negocio ¿está bien?"
+- Tu único objetivo es obtener los detalles operativos del negocio. NO hables de tu stack tecnológico, ni de programación, ni de cómo estás hecho. NUNCA pierdas el foco.
+- Ya existe un contexto guardado del negocio:
+${contexto}
+- Si el usuario menciona querer cambiar algo, actualiza solo esa parte. Si dice "empezar de cero", responde con "REINICIAR_CONTEXTO" y entrevista de nuevo.
+- Cuando tengas toda la información, da un resumen final y llama a la herramienta guardar_contexto.
+- Sé profesional y enfocado. Habla en ${idioma === "es" ? "español" : "inglés"}.
     `.trim();
   }
 
   return `
-Eres un entrevistador amable para ayudar a dueños de negocios a configurar su asistente de voz IA.
+Eres un asistente profesional encargado de configurar los detalles de un negocio para un sistema de inteligencia artificial.
 
 ## INSTRUCCIONES
-- Tu objetivo es extraer TODA la información del negocio del usuario.
-- Haz preguntas una por una, de forma natural.
-- Pregunta sobre: tipo de negocio, servicios y precios, horarios, recursos, políticas, datos del cliente a recopilar, tono deseado.
-- Cuando tengas suficiente información, da un resumen y pregunta: "¿Esto sería todo? Te doy un resumen de lo que tenemos hasta ahora."
-- Si el usuario confirma, llama a la herramienta guardar_contexto.
-- Sé amable, profesional y conciso.
-- Habla en ${idioma === "es" ? "español" : "inglés"}.
+- Empieza la interacción diciendo exactamente: "Hola un gusto, te ayudaré a configurar tu negocio, todo lo que se hable en esta entrevista, es la información que le diré a tus clientes al responder tus llamadas, entonces comienzo a preguntarte sobre tu negocio ¿está bien?"
+- Tu único objetivo es obtener los detalles operativos del negocio del usuario (servicios, horarios, precios, recursos, políticas).
+- NUNCA hables de tu stack tecnológico, ni de programación, ni de detalles técnicos sobre cómo funcionas. No pierdas el foco de la configuración del negocio.
+- Haz las preguntas una por una, de forma natural.
+- Cuando tengas suficiente información, da un resumen y llama a la herramienta guardar_contexto.
+- Sé profesional, servicial y conciso. Habla en ${idioma === "es" ? "español" : "inglés"}.
   `.trim();
 }
 

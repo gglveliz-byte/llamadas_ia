@@ -46,7 +46,7 @@ const NAV_ITEMS: SidebarItem[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, rol: "cliente" },
   { id: "citas", label: "Citas", icon: CalendarDays, rol: "cliente" },
   { id: "recargas", label: "Recargas", icon: Wallet, rol: "cliente" },
-  { id: "simulador", label: "Simulador de Voz", icon: Mic, rol: "cliente" },
+  { id: "simulador", label: "Configuración del Negocio", icon: Mic, rol: "cliente" },
   { id: "configuracion", label: "Configuración", icon: Settings, rol: "cliente" },
   { id: "admin-clientes", label: "Clientes", icon: Users, rol: "admin" },
   { id: "admin-tarifas", label: "Tarifas", icon: Tag, rol: "admin" },

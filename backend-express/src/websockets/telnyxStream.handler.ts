@@ -307,10 +307,10 @@ async function manejarMedia(
     if (sesion.sesionGemini.readyState === 1) { // 1 = OPEN
       sesion.sesionGemini.send(JSON.stringify({
         realtimeInput: {
-          mediaChunks: [{
+          audio: {
             mimeType: "audio/pcm;rate=16000",
             data: pcm16k.toString("base64")
-          }]
+          }
         }
       }));
     }

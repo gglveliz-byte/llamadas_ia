@@ -110,10 +110,10 @@ export function registrarSimuladorHandler(wss: WebSocketServer): void {
         if (msg.tipo === "audio" && msg.base64 && sesion.gemini && sesion.gemini.readyState === WebSocket.OPEN) {
           sesion.gemini.send(JSON.stringify({
             realtimeInput: {
-              mediaChunks: [{
+              audio: {
                 mimeType: msg.mimeType || "audio/pcm;rate=16000",
                 data: msg.base64
-              }]
+              }
             }
           }));
           resetearTimeouts();

@@ -8,8 +8,46 @@
  */
 import vadFactory, { type WebrtcVadModule } from "@ennuicastr/webrtcvad.js";
 import { logger } from "../utils/logger";
+import { db } from "../models/database.pool";
 
 const UMBRAL_ENERGIA_DBFS = -40;
+
+/**
+ * Gestor de configuración VAD dinámico. Lee los valores del AdminConfig
+ * y los mantiene cacheados en memoria para acceso ultra-rápido durante el streaming.
+ */
+export class VadConfigManager {
+  private configCache: Record<string, number> = {
+    vad_base_threshold: 0.62,
+    vad_min_frames: 3,
+    vad_noise_boost: 0.15,
+    vad_ignore_audio_until: 500,
+    vad_ai_speaking_window: 250,
+  };
+  private lastFetch: number = 0;
+  private readonly CACHE_TTL_MS = 10000; // 10s
+
+  public async getConfig() {
+    const now = Date.now();
+    if (now - this.lastFetch > this.CACHE_TTL_MS) {
+      try {
+        const dbConfigs = await db.adminConfig.findMany({
+          where: { clave: { startsWith: "vad_" } },
+        });
+        for (const c of dbConfigs) {
+          const val = parseFloat(c.valor);
+          if (!isNaN(val)) this.configCache[c.clave] = val;
+        }
+        this.lastFetch = now;
+      } catch (error) {
+        logger.error({ error: (error as Error).message }, "Error al actualizar caché VAD");
+      }
+    }
+    return this.configCache;
+  }
+}
+
+export const vadConfigManager = new VadConfigManager();
 
 export interface DetectorVoz {
   tieneVoz(pcm16Buffer: Buffer): boolean;

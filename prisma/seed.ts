@@ -18,6 +18,11 @@ async function main() {
     { clave: "alerta_ram_porcentaje", valor: "90", descripcion: "Umbral de RAM para alerta al admin" },
     { clave: "alerta_latencia_ms", valor: "600", descripcion: "Umbral de latencia de audio para alerta" },
     { clave: "email_admin_alertas", valor: "admin@vozia.com", descripcion: "Email del admin para recibir alertas" },
+    { clave: "vad_base_threshold", valor: "0.62", descripcion: "Umbral base de detección de voz (Silero VAD) [0.0 - 1.0]" },
+    { clave: "vad_min_frames", valor: "3", descripcion: "Frames mínimos de confirmación para voz (cada frame = 32ms)" },
+    { clave: "vad_noise_boost", valor: "0.15", descripcion: "Aumento de sensibilidad en entorno ruidoso (umbral adaptativo)" },
+    { clave: "vad_ignore_audio_until", valor: "500", descripcion: "Milisegundos de sordera post-interrupción (evita audio fantasma)" },
+    { clave: "vad_ai_speaking_window", valor: "250", descripcion: "Milisegundos de inmunidad anti-eco tras hablar la IA" },
   ];
 
   for (const c of adminConfigs) {

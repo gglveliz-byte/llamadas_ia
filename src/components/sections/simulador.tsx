@@ -139,6 +139,9 @@ export function SimuladorSection() {
             audioContext.close();
             audioContext = null;
           }
+        } else if (msg.tipo === "listo") {
+          setGrabando(true);
+          toast.info("Micrófono activo. El asistente te guiará en la configuración.");
         }
       } catch {
         // ignore
@@ -165,14 +168,14 @@ export function SimuladorSection() {
   const iniciarGrabacion = () => {
     setMensajes([]);
     setTimer(0);
-    setGrabando(true);
+    // No grabamos inmediatamente, esperamos el evento "listo" del servidor
+    setConectado(true);
     const ws = conectarWS();
     if (!ws) {
-      toast.error("No hay sesión activa");
-      setGrabando(false);
+      toast.error("No se pudo conectar");
+      setConectado(false);
       return;
     }
-    toast.info("Micrófono activo. El asistente te guiará en la configuración.");
   };
 
   const detenerGrabacion = () => {

@@ -207,10 +207,6 @@ async function iniciarSesionGemini(sesion: SesionSimulador, callSid: string): Pr
               }
             }
           },
-          automaticActivityDetection: {
-            disabled: false,
-            silenceDurationMs: 500
-          },
           systemInstruction: { parts: [{ text: systemPrompt }] },
           tools: [{ functionDeclarations: obtenerHerramientasSimulador() }]
         }
@@ -223,6 +219,9 @@ async function iniciarSesionGemini(sesion: SesionSimulador, callSid: string): Pr
         const msg = JSON.parse(data.toString());
 
         if (msg.setupComplete) {
+          if (sesion.ws.readyState === WebSocket.OPEN) {
+            sesion.ws.send(JSON.stringify({ tipo: "listo" }));
+          }
           enviarTexto(sesion.ws, "Asistente personal de configuración iniciada.");
           setTimeout(() => {
             enviarTexto(sesion.ws, "Comienza a hablar ahora.");

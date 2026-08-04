@@ -36,8 +36,12 @@ export async function GET(req: NextRequest) {
         ? { ...user.wallet, saldo: user.wallet.saldo.toNumber() }
         : null,
     });
-  } catch {
-    return NextResponse.json({ error: "Token inválido" }, { status: 401 });
+  } catch (error) {
+    console.error("[Session API] Error en /api/session:", error);
+    return NextResponse.json(
+      { error: "Error interno verificando sesión", detalle: (error as Error).message },
+      { status: 401 }
+    );
   }
 }
 

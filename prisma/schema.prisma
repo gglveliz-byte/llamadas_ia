@@ -8,98 +8,85 @@ datasource db {
 }
 
 model User {
-  id                            String   @id @default(uuid()) @db.Uuid
-  email                         String   @unique
-  passwordHash                  String
-  role                          String   @default("cliente")
-  isVerified                    Boolean  @default(false)
-  verificationToken             String?
-  recoveryToken                 String?
-  resetToken                    String?
-  resetTokenExpiry              DateTime?
-  isSuspended                   Boolean  @default(false)
-  createdAt                     DateTime @default(now())
-
-  businessName                  String?
-  businessPhone                 String?
-
-  telnyxChildAccountId          String?
-  telnyxApiKeyEncrypted         String?
-  telnyxProvisioningStatus      String   @default("none")
-  telnyxProvisioningError       String?
-
-  settings                      BusinessSettings?
-  wallet                        Wallet?
-  transactions                  WalletTransaction[]
-  phoneNumbers                  PhoneNumber[]
-  appointments                  Appointment[]
-  recordings                    CallRecording[]
-  metrics                       CallMetric[]
-  memories                      BusinessMemory[]
-  transcripts                   CallTranscript[]
+  id                       String              @id @default(uuid()) @db.Uuid
+  email                    String              @unique
+  passwordHash             String
+  role                     String              @default("cliente")
+  isVerified               Boolean             @default(false)
+  verificationToken        String?
+  recoveryToken            String?
+  isSuspended              Boolean             @default(false)
+  createdAt                DateTime            @default(now())
+  businessName             String?
+  businessPhone            String?
+  resetToken               String?
+  resetTokenExpiry         DateTime?
+  telnyxApiKeyEncrypted    String?
+  telnyxChildAccountId     String?
+  telnyxProvisioningError  String?
+  telnyxProvisioningStatus String              @default("none")
+  appointments             Appointment[]
+  settings                 BusinessSettings?
+  metrics                  CallMetric[]
+  recordings               CallRecording[]
+  transcripts              CallTranscript[]
+  phoneNumbers             PhoneNumber[]
+  wallet                   Wallet?
+  transactions             WalletTransaction[]
 
   @@map("users")
 }
 
 model BusinessSettings {
-  userId                String   @id @db.Uuid
-  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  aiLanguage            String   @default("es")
-  bookingMode           String   @default("hours")
-  defaultDurationMinutes Int     @default(30)
-  checkInTime           String   @default("15:00")
-  checkOutTime          String   @default("11:00")
-
-  businessHours         Json     @default("{\"lunes\":{\"abierto\":true,\"inicio\":\"09:00\",\"fin\":\"18:00\"},\"martes\":{\"abierto\":true,\"inicio\":\"09:00\",\"fin\":\"18:00\"},\"miercoles\":{\"abierto\":true,\"inicio\":\"09:00\",\"fin\":\"18:00\"},\"jueves\":{\"abierto\":true,\"inicio\":\"09:00\",\"fin\":\"18:00\"},\"viernes\":{\"abierto\":true,\"inicio\":\"09:00\",\"fin\":\"18:00\"},\"sabado\":{\"abierto\":true,\"inicio\":\"09:00\",\"fin\":\"14:00\"},\"domingo\":{\"abierto\":false,\"inicio\":null,\"fin\":null}}")
-
-  modo247               Boolean  @default(false)
-  timezone              String   @default("America/Mexico_City")
-
-  grabacionActiva       Boolean  @default(false)
-  mensajeConsentimiento String   @default("Esta llamada puede ser grabada para fines de calidad.")
-  consentimientoActivo  Boolean  @default(false)
-
-  formFields            Json     @default("[{\"key\":\"nombre\",\"label\":\"Nombre completo\",\"type\":\"text\",\"required\":true},{\"key\":\"telefono\",\"label\":\"Teléfono\",\"type\":\"tel\",\"required\":false},{\"key\":\"email\",\"label\":\"Correo electrónico\",\"type\":\"email\",\"required\":false},{\"key\":\"notas\",\"label\":\"Notas adicionales\",\"type\":\"textarea\",\"required\":false}]")
-
-  systemPromptContext   String   @default("Eres un asistente amable que agenda citas...")
-
-  recursos              Json     @default("[]")
-
-  updatedAt             DateTime @updatedAt
+  userId                 String   @id @db.Uuid
+  aiLanguage             String   @default("es")
+  bookingMode            String   @default("hours")
+  defaultDurationMinutes Int      @default(30)
+  checkInTime            String   @default("15:00")
+  checkOutTime           String   @default("11:00")
+  businessHours          Json     @default("{\"lunes\": {\"fin\": \"18:00\", \"inicio\": \"09:00\", \"abierto\": true}, \"jueves\": {\"fin\": \"18:00\", \"inicio\": \"09:00\", \"abierto\": true}, \"martes\": {\"fin\": \"18:00\", \"inicio\": \"09:00\", \"abierto\": true}, \"sabado\": {\"fin\": \"14:00\", \"inicio\": \"09:00\", \"abierto\": true}, \"domingo\": {\"fin\": null, \"inicio\": null, \"abierto\": false}, \"viernes\": {\"fin\": \"18:00\", \"inicio\": \"09:00\", \"abierto\": true}, \"miercoles\": {\"fin\": \"18:00\", \"inicio\": \"09:00\", \"abierto\": true}}")
+  modo247                Boolean  @default(false)
+  timezone               String   @default("America/Mexico_City")
+  grabacionActiva        Boolean  @default(false)
+  mensajeConsentimiento  String   @default("Esta llamada puede ser grabada para fines de calidad.")
+  consentimientoActivo   Boolean  @default(false)
+  formFields             Json     @default("[{\"key\": \"nombre\", \"type\": \"text\", \"label\": \"Nombre completo\", \"required\": true}]")
+  systemPromptContext    String   @default("Eres un asistente amable que agenda citas...")
+  recursos               Json     @default("[]")
+  updatedAt              DateTime @updatedAt
+  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("business_settings")
 }
 
 model Wallet {
-  userId     String              @id @db.Uuid
-  user       User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  saldo      Decimal             @default(0) @db.Decimal(10, 4)
-  moneda     String              @default("USD")
-  updatedAt  DateTime            @updatedAt
-
+  userId       String              @id @db.Uuid
+  saldo        Decimal             @default(0) @db.Decimal(10, 4)
+  moneda       String              @default("USD")
+  updatedAt    DateTime            @updatedAt
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions WalletTransaction[]
 
   @@map("wallet")
 }
 
 model WalletTransaction {
-  id              String   @id @default(uuid()) @db.Uuid
-  userId          String   @db.Uuid
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade, map: "wallet_tx_user_fkey")
-  wallet          Wallet?  @relation(fields: [userId], references: [userId], map: "wallet_tx_wallet_fkey")
-  tipo            String
-  monto           Decimal  @db.Decimal(10, 4)
-  saldoAnterior   Decimal  @db.Decimal(10, 4)
-  saldoNuevo      Decimal  @db.Decimal(10, 4)
-  whopPaymentId   String?
-  callSid         String?
-  descripcion     String?
-  createdAt       DateTime @default(now())
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @db.Uuid
+  tipo          String
+  monto         Decimal  @db.Decimal(10, 4)
+  saldoAnterior Decimal  @db.Decimal(10, 4)
+  saldoNuevo    Decimal  @db.Decimal(10, 4)
+  whopPaymentId String?
+  callSid       String?
+  descripcion   String?
+  createdAt     DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade, map: "wallet_tx_user_fkey")
+  user          Wallet   @relation(fields: [userId], references: [userId], map: "wallet_tx_user_fkey")
 
-  @@index([userId, createdAt])
   @@unique([tipo, whopPaymentId])
   @@unique([tipo, callSid])
+  @@index([userId, createdAt])
   @@map("wallet_transactions")
 }
 
@@ -127,57 +114,51 @@ model AdminConfig {
 }
 
 model BusinessMemory {
-  id          Int    @id @default(autoincrement())
-  userId      String @db.Uuid
-  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  rawContext  String
-  embedding   Unsupported("vector(768)")?
-  status      String @default("activo")
-  version     Int    @default(1)
-  createdAt   DateTime @default(now())
+  id         Int                    @id @default(autoincrement())
+  userId     String                 @db.Uuid
+  rawContext String
+  embedding  Unsupported("vector")?
+  status     String                 @default("activo")
+  version    Int                    @default(1)
+  createdAt  DateTime               @default(now())
 
   @@index([userId, status])
   @@map("business_memory")
 }
 
 model PhoneNumber {
-  id              Int      @id @default(autoincrement())
-  userId          String   @db.Uuid
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  telnyxPhoneSid  String?
-  phoneNumber     String   @unique
-  countryCode     String   @default("+1")
-  isActive        Boolean  @default(true)
-  purchasedAt     DateTime @default(now())
-
-  appointments    Appointment[]
+  id             Int           @id @default(autoincrement())
+  userId         String        @db.Uuid
+  phoneNumber    String        @unique
+  countryCode    String        @default("+1")
+  isActive       Boolean       @default(true)
+  purchasedAt    DateTime      @default(now())
+  telnyxPhoneSid String?
+  appointments   Appointment[]
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("phone_numbers")
 }
 
 model Appointment {
-  id              String   @id @default(uuid()) @db.Uuid
-  userId          String   @db.Uuid
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id              String          @id @default(uuid()) @db.Uuid
+  userId          String          @db.Uuid
   phoneNumberId   Int?
-  phoneNumber     PhoneNumber? @relation(fields: [phoneNumberId], references: [id])
-
   customerName    String
   customerPhone   String?
   customerEmail   String?
   extraFields     Json?
-
-  startTime       DateTime @db.Timestamptz
-  endTime         DateTime? @db.Timestamptz
+  startTime       DateTime        @db.Timestamptz(6)
+  endTime         DateTime?       @db.Timestamptz(6)
   durationMinutes Int?
-
   recursoId       String?
-  status          String   @default("agendado")
+  status          String          @default("agendado")
   notes           String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  phoneNumber     PhoneNumber?    @relation(fields: [phoneNumberId], references: [id])
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   recordings      CallRecording[]
 
   @@index([userId, startTime])
@@ -186,33 +167,33 @@ model Appointment {
 }
 
 model CallRecording {
-  id                  Int      @id @default(autoincrement())
-  userId              String   @db.Uuid
-  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  appointmentId       String?  @db.Uuid
-  appointment         Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
-  telnyxCallControlId String?
-  telnyxStreamSid     String?
+  id                  Int          @id @default(autoincrement())
+  userId              String       @db.Uuid
+  appointmentId       String?      @db.Uuid
   r2FileUrl           String
   durationSeconds     Int?
-  createdAt           DateTime @default(now())
+  createdAt           DateTime     @default(now())
+  telnyxCallControlId String?
+  telnyxStreamSid     String?
+  appointment         Appointment? @relation(fields: [appointmentId], references: [id])
+  user                User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("call_recordings")
 }
 
 model CallMetric {
-  id                  Int      @id @default(autoincrement())
-  callSid             String?
-  userId              String?  @db.Uuid
-  user                User?    @relation(fields: [userId], references: [id])
-  inicio              DateTime?
-  fin                 DateTime?
-  duracionSegundos    Int?
-  latenciaPromedioMs  Int?
-  latenciaMaxMs       Int?
-  cobroAplicado       Decimal? @db.Decimal(10, 4)
-  errorCode           String?
-  createdAt           DateTime @default(now())
+  id                 Int       @id @default(autoincrement())
+  callSid            String?
+  userId             String?   @db.Uuid
+  inicio             DateTime?
+  fin                DateTime?
+  duracionSegundos   Int?
+  latenciaPromedioMs Int?
+  latenciaMaxMs      Int?
+  cobroAplicado      Decimal?  @db.Decimal(10, 4)
+  errorCode          String?
+  createdAt          DateTime  @default(now())
+  user               User?     @relation(fields: [userId], references: [id])
 
   @@index([userId, createdAt])
   @@map("call_metrics")
@@ -222,11 +203,11 @@ model CallTranscript {
   id        Int      @id @default(autoincrement())
   callSid   String
   userId    String   @db.Uuid
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   rol       String
   texto     String
   ts        DateTime @default(now())
   createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
   @@index([callSid])
@@ -247,12 +228,12 @@ model Notification {
 }
 
 model AuditLog {
-  id            Int      @id @default(autoincrement())
-  adminId       String   @db.Uuid
-  targetUserId  String?  @db.Uuid
-  action        String
-  details       Json?
-  createdAt     DateTime @default(now())
+  id           Int      @id @default(autoincrement())
+  adminId      String   @db.Uuid
+  targetUserId String?  @db.Uuid
+  action       String
+  details      Json?
+  createdAt    DateTime @default(now())
 
   @@index([adminId, createdAt])
   @@index([targetUserId, createdAt])

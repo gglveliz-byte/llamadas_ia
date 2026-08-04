@@ -178,7 +178,6 @@ const liveConnect = ai.live.connect as any;
         responseModalities: [Modality.AUDIO],
         systemInstruction: { parts: [{ text: systemPrompt }] },
         tools: [{ functionDeclarations: obtenerHerramientasSimulador(sesion, callSid)[0].functionDeclarations }],
-        thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
         speechConfig: {
           voiceConfig: {
             prebuiltVoiceConfig: {
@@ -208,17 +207,7 @@ const liveConnect = ai.live.connect as any;
     sesion.gemini = session as Session;
     enviarTexto(sesion.ws, "Conectado a Gemini. Iniciando...");
 
-    // Forzar a que la IA hable primero (Opening Prompt oculto)
-    try {
-      await session.sendRealtimeInput({
-        clientContent: {
-          turns: [{ role: "user", parts: [{ text: "Saluda amablemente e inicia la entrevista haciendo la primera pregunta." }] }],
-          turnComplete: true
-        }
-      } as any);
-    } catch (e) {
-      logger.warn({ error: (e as Error).message }, "Error enviando prompt inicial a Gemini");
-    }
+    // Removido forzar a que la IA hable primero según instrucción del usuario
 
     procesarRespuestasGemini(session as Session, sesion, callSid);
   } catch (e) {

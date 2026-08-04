@@ -357,17 +357,17 @@ export async function ejecutarHerramienta(
           recursoId: params.recurso_id,
           notes: params.notes,
         });
-        if (!resultado.ok) {
-          return { error: resultado.error, conflictoCon: resultado.conflictoCon };
+        if (!(resultado as any).ok) {
+          return { error: (resultado as any).error, conflictoCon: (resultado as any).conflictoCon };
         }
         // Notificar al dueño via SSE
         emitirSSE(userId, "nueva_cita", {
-          cita: resultado.cita,
+          cita: (resultado as any).cita,
           callSid,
         });
         return {
           ok: true,
-          cita_id: resultado.cita.id,
+          cita_id: (resultado as any).cita.id,
           mensaje: `Cita agendada para ${params.customer_name} el ${new Date(params.start_time).toLocaleString("es-MX")}`,
         };
       }

@@ -181,7 +181,7 @@ export function SimuladorSection() {
 
   const enviarAudio = (base64: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ tipo: "audio", base64, mimeType: "audio/wav" }));
+      wsRef.current.send(JSON.stringify({ tipo: "audio", base64, mimeType: "audio/pcm;rate=16000" }));
     }
   };
 

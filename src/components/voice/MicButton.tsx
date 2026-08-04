@@ -62,8 +62,14 @@ export function MicButton({ onAudioChunk, onStart, onStop, disabled, className }
         if (chunksRef.current.length === 0) return;
         const concat = concatenarChunks(chunksRef.current);
         chunksRef.current = [];
-        const wav = float32ToWav(concat, 16000);
-        const base64 = bufferToBase64(wav);
+        
+        // Convert Float32 to Int16 (RAW PCM)
+        const pcm16 = new Int16Array(concat.length);
+        for (let i = 0; i < concat.length; i++) {
+          const s = Math.max(-1, Math.min(1, concat[i]));
+          pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        }
+        const base64 = bufferToBase64(pcm16.buffer);
         onAudioChunk(base64);
       }, CHUNK_INTERVAL_MS);
 

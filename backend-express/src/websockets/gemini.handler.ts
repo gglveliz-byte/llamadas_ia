@@ -1,5 +1,5 @@
-import { GoogleGenAI, Modality, Type, ThinkingLevel } from "@google/genai";
-import type { Session } from "@google/genai";
+import { Type } from "@google/genai";
+import { WebSocket as WS } from "ws";
 import { db } from "../models/database.pool";
 import { obtenerContextoRAG } from "../services/rag.service";
 import { agendarCita, cancelarCita, consultarDisponibilidad } from "../services/calendar.service";
@@ -35,13 +35,9 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
   return originalFetch(input, init);
 };
 
-const ai = process.env.GEMINI_API_KEY
-  ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
-  : null;
-
 const MODELO = process.env.GEMINI_MODEL || "models/gemini-3.1-flash-live-preview";
 
-export type SesionGemini = Session;
+export type SesionGemini = WS;
 
 /**
  * Crea una sesión de Gemini Live para una llamada entrante.
@@ -52,7 +48,8 @@ export async function crearSesionGemini(
   callSid: string,
   streamSid: string
 ): Promise<SesionGemini | null> {
-  if (!ai) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
     logger.warn({ callSid }, "GEMINI_API_KEY no configurada - sesión simulada");
     return null;
   }
@@ -68,28 +65,40 @@ export async function crearSesionGemini(
 
   const systemPrompt = construirSystemPrompt(contexto, settings, callSid);
   const herramientas = obtenerHerramientas();
+  const aiVoice = settings.aiVoice || "Puck";
 
   try {
-    const session = await ai.live.connect({
-      model: MODELO,
-      config: {
-        responseModalities: [Modality.AUDIO],
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        // @ts-expect-error - tools type varies by SDK version
-        tools: [{ functionDeclarations: herramientas[0].functionDeclarations }],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: {
-              voiceName: settings.aiVoice || "Puck",
-            },
+    const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${apiKey}`;
+    const geminiWs = new WS(wsUrl);
+
+    // We will initialize the setup message when the socket opens (handled in telnyxStream usually, but let's do it here)
+    geminiWs.on("open", () => {
+      logger.info({ callSid, streamSid, userId }, "Sesión Gemini Live WebSocket abierta");
+      const setupMsg = {
+        setup: {
+          model: MODELO,
+          generationConfig: {
+            responseModalities: ["AUDIO"],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: {
+                  voiceName: aiVoice
+                }
+              }
+            }
           },
-        },
-      },
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          tools: [{ functionDeclarations: herramientas[0].functionDeclarations }]
+        }
+      };
+      geminiWs.send(JSON.stringify(setupMsg));
+    });
+    
+    geminiWs.on("error", (e) => {
+      logger.error({ error: e.message, callSid }, "Error en WebSocket de Gemini Live");
     });
 
-    logger.info({ callSid, streamSid, userId }, "Sesión Gemini Live creada");
-
-    return session as Session;
+    return geminiWs;
   } catch (e) {
     logger.error({ error: (e as Error).message, callSid }, "Error conectando con Gemini Live API");
     enviarAlertaAdmin(`CRÍTICO: No se pudo conectar a la API de Gemini Live para la llamada ${callSid}.\nDetalle: ${(e as Error).message}`);
@@ -410,57 +419,68 @@ export async function procesarMensajesGemini(
 ): Promise<void> {
   const inicioTurno = Date.now();
 
-  try {
-    for await (const message of session as any) {
-      const parts = message.serverContent?.modelTurn?.parts;
-      if (!parts) continue;
+  session.on("message", async (data) => {
+    try {
+      let msg: any = data;
+      if (Buffer.isBuffer(data)) {
+        msg = JSON.parse(data.toString("utf-8"));
+      } else if (typeof data === "string") {
+        msg = JSON.parse(data);
+      }
 
-      for (const part of parts) {
-        // Audio de respuesta
-        if (part.inlineData?.mimeType?.startsWith("audio/")) {
-          const mulaw8k = await transcodificarGeminiATelefonía(part.inlineData.data!);
-          enviarATelnyx(streamSid, mulaw8k);
-          registrarLatencia(Date.now() - inicioTurno);
-        }
+      if (msg.serverContent && msg.serverContent.modelTurn && msg.serverContent.modelTurn.parts) {
+        for (const part of msg.serverContent.modelTurn.parts) {
+          // Audio de respuesta
+          if (part.inlineData && part.inlineData.mimeType?.startsWith("audio")) {
+            const mulaw8k = await transcodificarGeminiATelefonía(part.inlineData.data);
+            enviarATelnyx(streamSid, mulaw8k);
+            registrarLatencia(Date.now() - inicioTurno);
+          }
 
-        // Transcripción
-        if (part.text) {
-          emitirSSE(userId, "transcripcion", { callSid, texto: part.text, rol: "ai" });
-          logger.info({ callSid, texto: part.text }, "Transcripción IA");
-          onTranscripcion?.(part.text, "ai", Date.now());
-        }
+          // Transcripción
+          if (part.text) {
+            emitirSSE(userId, "transcripcion", { callSid, texto: part.text, rol: "ai" });
+            logger.info({ callSid, texto: part.text }, "Transcripción IA");
+            onTranscripcion?.(part.text, "ai", Date.now());
+          }
 
-        // Function Call (síncrono - bloqueante)
-        if (part.functionCall) {
-          const { name, args } = part.functionCall;
-          const resultado = await ejecutarHerramienta(
-            name!,
-            args as Record<string, unknown>,
-            userId,
-            callSid
-          );
+          // Function Call
+          if (part.functionCall) {
+            const { name, args } = part.functionCall;
+            const resultado = await ejecutarHerramienta(
+              name,
+              args as Record<string, unknown>,
+              userId,
+              callSid
+            );
 
-          // RESPONDER a Gemini (bloqueante - el modelo espera esto)
-          await session.sendRealtimeInput({
-            functionResponses: [
-              {
-                name: name!,
-                response: resultado,
-              },
-            ],
-          } as any);
+            // RESPONDER a Gemini (enviando el mensaje de vuelta)
+            if (session.readyState === WS.OPEN) {
+              session.send(JSON.stringify({
+                clientContent: {
+                  turnComplete: true,
+                  turns: [{
+                    role: "user",
+                    parts: [{
+                      functionResponse: {
+                        name: name,
+                        response: resultado
+                      }
+                    }]
+                  }]
+                }
+              }));
+            }
+          }
         }
       }
 
       // Turno completo
-      if (message.serverContent?.turnComplete) {
+      if (msg.serverContent?.turnComplete) {
         logger.info({ callSid, latencia: Date.now() - inicioTurno }, "Turno Gemini completado");
       }
+    } catch (e) {
+      logger.error({ error: (e as Error).message, callSid }, "Error en loop de Gemini");
     }
-  } catch (e) {
-    logger.error({ error: (e as Error).message, callSid }, "Error en loop de Gemini");
-    enviarAlertaAdmin(`CRÍTICO: El loop de Gemini falló o se interrumpió para la llamada ${callSid}.\nDetalle: ${(e as Error).message}`);
-  }
+  });
 }
-
-export { ai };

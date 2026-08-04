@@ -1,22 +1,16 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { IncomingMessage } from "http";
-import { GoogleGenAI, Modality, Type, ThinkingLevel } from "@google/genai";
-import type { Session } from "@google/genai";
 import { db } from "../models/database.pool";
 import { guardarContexto, obtenerContextoNegocio } from "../services/rag.service";
 import { emitirSSE } from "../sse/events.emitter";
 import { logger } from "../utils/logger";
-
-const ai = (process.env.GEMINI_API_KEY
-  ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
-  : null) as any;
 
 const MODELO = process.env.GEMINI_MODEL || "models/gemini-3.1-flash-live-preview";
 
 interface SesionSimulador {
   ws: WebSocket;
   userId: string;
-  gemini: Session | null;
+  gemini: WebSocket | null;
   ultimaActividad: number;
   timeoutSilencio: ReturnType<typeof setTimeout> | null;
   timeoutCierre: ReturnType<typeof setTimeout> | null;
@@ -79,7 +73,7 @@ export function registrarSimuladorHandler(wss: WebSocketServer): void {
       limpiarTimeouts();
       try {
         if (s.gemini) {
-          await s.gemini.close();
+          s.gemini.close();
         }
       } catch (e) {
         logger.warn({ error: (e as Error).message }, "Error cerrando sesión Gemini en simulador");
@@ -113,10 +107,15 @@ export function registrarSimuladorHandler(wss: WebSocketServer): void {
       try {
         const msg = JSON.parse(data.toString());
 
-        if (msg.tipo === "audio" && msg.base64 && sesion.gemini) {
-          await sesion.gemini.sendRealtimeInput({
-            media: { data: msg.base64, mimeType: msg.mimeType || "audio/pcm;rate=16000" },
-          });
+        if (msg.tipo === "audio" && msg.base64 && sesion.gemini && sesion.gemini.readyState === WebSocket.OPEN) {
+          sesion.gemini.send(JSON.stringify({
+            realtimeInput: {
+              mediaChunks: [{
+                mimeType: msg.mimeType || "audio/pcm;rate=16000",
+                data: msg.base64
+              }]
+            }
+          }));
           resetearTimeouts();
           return;
         }
@@ -159,7 +158,8 @@ function enviarAudio(ws: WebSocket, base64: string, mimeType: string): void {
 }
 
 async function iniciarSesionGemini(sesion: SesionSimulador, callSid: string): Promise<void> {
-  if (!ai) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
     enviarTexto(sesion.ws, "Modo demo: GEMINI_API_KEY no configurada. Usa el textarea para editar el contexto manualmente.");
     return;
   }
@@ -168,48 +168,105 @@ async function iniciarSesionGemini(sesion: SesionSimulador, callSid: string): Pr
     const contexto = await obtenerContextoNegocio(sesion.userId);
     const settings = await db.businessSettings.findUnique({ where: { userId: sesion.userId } });
     const idioma = settings?.aiLanguage || "es";
-
     const systemPrompt = construirPromptEntrevista(contexto, idioma);
+    const aiVoice = settings?.aiVoice || "Puck";
 
-const liveConnect = ai.live.connect as any;
-    const sessionResult = await liveConnect({
-      model: MODELO,
-      config: {
-        responseModalities: [Modality.AUDIO],
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        tools: [{ functionDeclarations: obtenerHerramientasSimulador(sesion, callSid)[0].functionDeclarations }],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: {
-              voiceName: settings?.aiVoice || "Puck",
-            },
+    const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${apiKey}`;
+    const geminiWs = new WebSocket(wsUrl);
+    sesion.gemini = geminiWs;
+
+    geminiWs.on("open", () => {
+      logger.info({ callSid }, "Simulador Gemini session opened via raw WebSocket");
+      const setupMsg = {
+        setup: {
+          model: MODELO,
+          generationConfig: {
+            responseModalities: ["AUDIO"],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: {
+                  voiceName: aiVoice
+                }
+              }
+            }
           },
-        },
-      },
-      callbacks: {
-        onopen: () => {
-          logger.info({ callSid }, "Simulador Gemini session opened");
-        },
-        onclose: () => {
-          logger.info({ callSid }, "Simulador Gemini session closed");
-        },
-        onerror: (error: any) => {
-          logger.error({ error: error?.message || String(error), callSid }, "Simulador Gemini session error");
-        },
-        onmessage: (message: any) => {
-          // Mensajes se procesan en procesarRespuestasGemini
-        },
-      },
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          tools: [{ functionDeclarations: obtenerHerramientasSimulador() }]
+        }
+      };
+      geminiWs.send(JSON.stringify(setupMsg));
     });
 
-    const session = sessionResult as Session;
+    geminiWs.on("message", async (data) => {
+      try {
+        const msg = JSON.parse(data.toString());
 
-    sesion.gemini = session as Session;
-    enviarTexto(sesion.ws, "Conectado a Gemini. Iniciando...");
+        if (msg.setupComplete) {
+          enviarTexto(sesion.ws, "Conectado a Gemini. Iniciando...");
+          return;
+        }
 
-    // Removido forzar a que la IA hable primero según instrucción del usuario
+        if (msg.serverContent && msg.serverContent.modelTurn && msg.serverContent.modelTurn.parts) {
+          for (const part of msg.serverContent.modelTurn.parts) {
+            if (part.inlineData && part.inlineData.mimeType?.startsWith("audio")) {
+              enviarAudio(sesion.ws, part.inlineData.data, part.inlineData.mimeType);
+            }
+            if (part.text) {
+              if (part.text.includes("REINICIAR_CONTEXTO")) {
+                const textoLimpio = part.text.replace("REINICIAR_CONTEXTO", "").trim();
+                if (textoLimpio) enviarTexto(sesion.ws, textoLimpio);
+                sesion.contextoGuardado = null;
+                sesion.conversacionBuffer = [];
+                continue;
+              }
+              enviarTexto(sesion.ws, part.text);
+              sesion.conversacionBuffer.push(`IA: ${part.text}`);
+              sesion.transcripts.push({ texto: part.text, rol: "ai", ts: Date.now() });
+              emitirSSE(sesion.userId, "transcripcion", { texto: part.text, rol: "ai" });
+              logger.info({ texto: part.text }, "Transcripción simulador IA");
+            }
+            if (part.functionCall) {
+              const { name, args } = part.functionCall;
+              if (name === "guardar_contexto") {
+                const rawContext = args.raw_context as string;
+                sesion.contextoGuardado = rawContext;
+                enviarTexto(sesion.ws, "¡Contexto guardado! Puedes editarlo en el panel y volver a guardar.");
+                await guardarContexto(sesion.userId, rawContext, "save");
+                emitirSSE(sesion.userId, "contexto_guardado", { contexto: rawContext });
+                logger.info({ userId: sesion.userId }, "Contexto guardado desde simulador");
+              }
 
-    procesarRespuestasGemini(session as Session, sesion, callSid);
+              // Send function response back
+              geminiWs.send(JSON.stringify({
+                clientContent: {
+                  turnComplete: true,
+                  turns: [{
+                    role: "user",
+                    parts: [{
+                      functionResponse: {
+                        name: name,
+                        response: { ok: true }
+                      }
+                    }]
+                  }]
+                }
+              }));
+            }
+          }
+        }
+      } catch (e) {
+        logger.error({ error: (e as Error).message }, "Error procesando mensaje de Gemini");
+      }
+    });
+
+    geminiWs.on("close", () => {
+      logger.info({ callSid }, "Simulador Gemini session closed");
+    });
+
+    geminiWs.on("error", (error) => {
+      logger.error({ error: error?.message || String(error), callSid }, "Simulador Gemini session error");
+      enviarTexto(sesion.ws, "Error conectando con la IA. Intenta de nuevo.");
+    });
   } catch (e) {
     logger.error({ error: (e as Error).message }, "Error iniciando sesión Gemini simulador");
     enviarTexto(sesion.ws, "Error conectando con la IA. Intenta de nuevo.");
@@ -251,91 +308,21 @@ Eres un entrevistador amable para ayudar a dueños de negocios a configurar su a
   `.trim();
 }
 
-function obtenerHerramientasSimulador(
-  sesion: SesionSimulador,
-  callSid: string
-): Array<{ functionDeclarations: Array<{ name: string; description: string; parameters: { type: Type.OBJECT; properties: Record<string, any>; required: string[] } }> }> {
+function obtenerHerramientasSimulador(): Array<any> {
   return [
     {
-      functionDeclarations: [
-        {
-          name: "guardar_contexto",
-          description:
-            "Guarda el contexto del negocio. Solo usar cuando el usuario confirme que la información está completa.",
-          parameters: {
-            type: Type.OBJECT,
-            properties: {
-              raw_context: {
-                type: Type.STRING,
-                description: "Resumen completo del contexto del negocio en texto plano estructurado.",
-              },
-            },
-            required: ["raw_context"],
+      name: "guardar_contexto",
+      description: "Guarda el contexto del negocio. Solo usar cuando el usuario confirme que la información está completa.",
+      parameters: {
+        type: "OBJECT",
+        properties: {
+          raw_context: {
+            type: "STRING",
+            description: "Resumen completo del contexto del negocio en texto plano estructurado.",
           },
         },
-      ],
-    },
-  ];
-}
-
-async function procesarRespuestasGemini(
-  session: Session,
-  sesion: SesionSimulador,
-  callSid: string
-): Promise<void> {
-  try {
-    for await (const message of session as any) {
-      const parts = message.serverContent?.modelTurn?.parts;
-      if (!parts) continue;
-
-      for (const part of parts) {
-        if (part.inlineData?.mimeType?.startsWith("audio/")) {
-          enviarAudio(sesion.ws, part.inlineData.data!, part.inlineData.mimeType);
-        }
-
-        if (part.text) {
-          if (part.text.includes("REINICIAR_CONTEXTO")) {
-            const textoLimpio = part.text.replace("REINICIAR_CONTEXTO", "").trim();
-            if (textoLimpio) enviarTexto(sesion.ws, textoLimpio);
-            sesion.contextoGuardado = null;
-            sesion.conversacionBuffer = [];
-            continue;
-          }
-          enviarTexto(sesion.ws, part.text);
-          sesion.conversacionBuffer.push(`IA: ${part.text}`);
-          sesion.transcripts.push({ texto: part.text, rol: "ai", ts: Date.now() });
-          emitirSSE(sesion.userId, "transcripcion", { texto: part.text, rol: "ai" });
-          logger.info({ texto: part.text }, "Transcripción simulador IA");
-        }
-
-        if (part.functionCall) {
-          const { name, args } = part.functionCall;
-          if (name === "guardar_contexto") {
-            const rawContext = (args as Record<string, unknown>).raw_context as string;
-            sesion.contextoGuardado = rawContext;
-            enviarTexto(sesion.ws, "¡Contexto guardado! Puedes editarlo en el panel y volver a guardar.");
-            await guardarContexto(sesion.userId, rawContext, "save");
-            emitirSSE(sesion.userId, "contexto_guardado", { contexto: rawContext });
-            logger.info({ userId: sesion.userId }, "Contexto guardado desde simulador");
-          }
-
-          await session.sendRealtimeInput({
-            functionResponses: [
-              {
-                name: name!,
-                response: { ok: true },
-              },
-            ],
-          } as any);
-        }
-      }
-
-      if (message.serverContent?.turnComplete) {
-        logger.info({ callSid }, "Turno Gemini simulador completado");
-      }
+        required: ["raw_context"],
+      },
     }
-  } catch (e) {
-    logger.error({ error: (e as Error).message, callSid }, "Error en loop Gemini simulador");
-    enviarTexto(sesion.ws, "Error en la conexión con la IA. Puedes seguir editando el contexto manualmente.");
-  }
+  ];
 }

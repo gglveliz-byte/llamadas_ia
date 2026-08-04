@@ -304,12 +304,16 @@ async function manejarMedia(
 
   // Enviar a Gemini como input en tiempo real
   try {
-    await sesion.sesionGemini.sendRealtimeInput({
-      audio: {
-        data: pcm16k.toString("base64"),
-        mimeType: "audio/pcm;rate=16000",
-      },
-    });
+    if (sesion.sesionGemini.readyState === 1) { // 1 = OPEN
+      sesion.sesionGemini.send(JSON.stringify({
+        realtimeInput: {
+          mediaChunks: [{
+            mimeType: "audio/pcm;rate=16000",
+            data: pcm16k.toString("base64")
+          }]
+        }
+      }));
+    }
     sesion.ultimaActividadGemini = Date.now();
   } catch (e) {
     logger.error({ error: (e as Error).message, callControlId }, "Error enviando audio a Gemini");

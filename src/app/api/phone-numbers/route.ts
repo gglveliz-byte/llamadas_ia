@@ -54,6 +54,9 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         userId: body.userId,
         phoneNumber: body.phoneNumber,
+        upfrontCost: body.upfrontCost,
+        monthlyCost: body.monthlyCost,
+        currency: body.currency,
       }),
     });
 

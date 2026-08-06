@@ -11,15 +11,18 @@ import { obtenerLlamadasActivasTelnyx } from "../websockets/telnyxStream.handler
 import { emitirSSE, obtenerClientesConectados } from "../sse/events.emitter";
 import { logger } from "../utils/logger";
 import { obtenerRateLimitGemini, obtenerRateLimitTelnyx, obtenerConcurrenciaTelnyx } from "../services/ratelimit.service";
-import { 
-  searchAvailableNumbers, 
-  purchasePhoneNumber, 
+import {
+  searchAvailableNumbers,
+  purchasePhoneNumber,
   createVoiceConnection,
   assignNumberToConnection,
-  configureNumberWebhooks 
+  configureNumberWebhooks,
+  getAvailableNumberByPhone
 } from "../services/telnyx.service";
 import { enviarEmail, emailTemplates } from "../services/email.service";
 import { encrypt } from "../utils/encryption";
+import { saldoPermiteCobro, debitarConcepto, reversarConcepto } from "../services/billing.service";
+import { procesarRentasUsuario } from "../services/rentas.service";
 
 export const internalRouter = Router();
 
@@ -174,6 +177,29 @@ internalRouter.get("/health", (req, res) => {
 });
 
 /**
+ * Precios de venta de números: costo real del proveedor × (1 + margen%),
+ * o defaults de admin cuando el proveedor no reporta costo.
+ * El margen (margen_numero_pct) es configurable en el panel admin.
+ */
+async function preciosNumero(): Promise<{ defAlta: number; defMes: number; factor: number }> {
+  const [cfgAlta, cfgMes, cfgMargen] = await Promise.all([
+    db.adminConfig.findUnique({ where: { clave: "precio_alta_numero" } }),
+    db.adminConfig.findUnique({ where: { clave: "precio_mes_numero" } }),
+    db.adminConfig.findUnique({ where: { clave: "margen_numero_pct" } }),
+  ]);
+  const defAlta = parseFloat(cfgAlta?.valor ?? "1") || 1;
+  const defMes = parseFloat(cfgMes?.valor ?? "1") || 1;
+  const margen = parseFloat(cfgMargen?.valor ?? "50");
+  const factor = 1 + (isFinite(margen) ? margen : 50) / 100;
+  return { defAlta, defMes, factor };
+}
+
+function precioVenta(base: number, def: number, factor: number): number {
+  const b = isFinite(base) && base > 0 ? base : def;
+  return Math.round(b * factor * 100) / 100;
+}
+
+/**
  * POST /internal/telnyx/purchase-number
  * Compra un número Telnyx específico para un usuario.
  * Body: { userId, phoneNumber }
@@ -181,6 +207,10 @@ internalRouter.get("/health", (req, res) => {
 const purchaseNumberSchema = z.object({
   userId: z.string().uuid(),
   phoneNumber: z.string().min(10).max(20),
+  // coerce: Telnyx/frontend pueden mandar los costos como string ("1.00000")
+  upfrontCost: z.coerce.number().min(0).max(1000).optional(),
+  monthlyCost: z.coerce.number().min(0).max(1000).optional(),
+  currency: z.string().max(10).optional(),
 });
 
 internalRouter.post("/telnyx/purchase-number", async (req, res) => {
@@ -226,6 +256,33 @@ internalRouter.post("/telnyx/purchase-number", async (req, res) => {
       logger.info({ userId, childAccountId }, "Child account aprovisionada lazymente al comprar número");
     }
 
+    // Guardia de duplicado: el usuario ya tiene este número
+    const numeroExistente = await db.phoneNumber.findUnique({ where: { phoneNumber } });
+    if (numeroExistente) {
+      return res.status(409).json({ error: "Este número ya está en tu cuenta." });
+    }
+
+    // Precio de venta = costo real del proveedor × (1 + margen%); el servidor
+    // decide el precio (no el frontend).
+    const infoTelnyx = await getAvailableNumberByPhone(phoneNumber);
+    const { defAlta, defMes, factor } = await preciosNumero();
+    const upfrontRaw = parseFloat(String(infoTelnyx?.cost_information?.upfront_cost ?? ""));
+    const monthlyRaw = parseFloat(String(infoTelnyx?.cost_information?.monthly_cost ?? ""));
+    const upfront = precioVenta(upfrontRaw, defAlta, factor);
+    const monthly = precioVenta(monthlyRaw, defMes, factor);
+    const currency = infoTelnyx?.cost_information?.currency ?? parsed.data.currency ?? "USD";
+
+    // Verificar saldo antes de cobrar el alta
+    if (!(await saldoPermiteCobro(userId, upfront))) {
+      return res.status(402).json({
+        error: `Saldo insuficiente para el pago de alta ($${upfront.toFixed(2)} ${currency}). Recarga saldo e inténtalo de nuevo.`,
+      });
+    }
+
+    // Cobrar alta primero (idempotente por número+día); se reversa si Telnyx falla
+    const refAlta = `alta_num_${phoneNumber}_${new Date().toISOString().slice(0, 10)}`;
+    await debitarConcepto(userId, upfront, `Alta número ${phoneNumber}`, refAlta);
+
     try {
       // Comprar número específico: Si es flujo root, childAccountId será null/undefined.
       const comprado = await purchasePhoneNumber(phoneNumber, isRootFlow ? undefined : (childAccountId || undefined));
@@ -263,7 +320,7 @@ internalRouter.post("/telnyx/purchase-number", async (req, res) => {
       const webhookUrl = `${process.env.DOMINIO_EXPRESS}/webhooks/telnyx/voice`;
       await (await import("../services/telnyx.service")).configureNumberWebhooks(comprado.id, webhookUrl);
 
-      // Guardar en BD
+      // Guardar en BD con costos para el cobro mensual
       await db.phoneNumber.create({
         data: {
           userId: parsed.data.userId,
@@ -271,16 +328,49 @@ internalRouter.post("/telnyx/purchase-number", async (req, res) => {
           countryCode: comprado.country_code,
           telnyxPhoneSid: comprado.id,
           isActive: true,
+          upfrontCost: upfront,
+          monthlyCost: monthly,
+          currency,
+          lastMonthlyChargeAt: new Date(),
         },
       });
 
-      res.json({ phoneNumber: comprado.phone_number, telnyxId: comprado.id });
+      res.json({
+        phoneNumber: comprado.phone_number,
+        telnyxId: comprado.id,
+        upfrontCost: upfront,
+        monthlyCost: monthly,
+        currency,
+      });
     } catch (e) {
+      await reversarConcepto(userId, upfront, `Reversa alta número ${phoneNumber}`, refAlta);
       logger.error({ error: (e as Error).message }, "Error comprando número Telnyx");
       res.status(500).json({ error: "Error comprando número: " + (e as Error).message });
     }
   } catch (e) {
     logger.error({ error: (e as Error).message }, "Error en purchase-number");
+    res.status(500).json({ error: "Error interno" });
+  }
+});
+
+/**
+ * POST /internal/rentas/procesar-usuario
+ * Procesa rentas vencidas del usuario (cobro, suspensión, liberación,
+ * reactivación). Lo llama Next tras cada recarga Whop para reactivar
+ * números suspendidos de inmediato.
+ */
+const procesarRentasSchema = z.object({ userId: z.string().uuid() });
+
+internalRouter.post("/rentas/procesar-usuario", async (req, res) => {
+  const parsed = procesarRentasSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Datos inválidos" });
+  }
+  try {
+    await procesarRentasUsuario(parsed.data.userId);
+    res.json({ ok: true });
+  } catch (e) {
+    logger.error({ error: (e as Error).message }, "Error procesando rentas del usuario");
     res.status(500).json({ error: "Error interno" });
   }
 });
@@ -334,7 +424,8 @@ internalRouter.post("/telnyx/create-child-account", async (req, res) => {
 const searchNumbersSchema = z.object({
   countryCode: z.string().min(1).max(5),
   areaCode: z.string().optional(),
-  limit: z.coerce.number().optional(),
+  limit: z.coerce.number().min(1).max(50).optional(),
+  page: z.coerce.number().min(1).optional(),
 });
 
 internalRouter.get("/telnyx/available-numbers", async (req, res) => {
@@ -342,11 +433,35 @@ internalRouter.get("/telnyx/available-numbers", async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Parámetros inválidos" });
   }
-  const { countryCode, areaCode, limit } = parsed.data;
+  const { countryCode, areaCode, limit, page } = parsed.data;
 
   try {
-    const numbers = await searchAvailableNumbers(countryCode, areaCode, limit ?? 10);
-    res.json({ numbers });
+    const { numbers, total } = await searchAvailableNumbers(
+      countryCode,
+      areaCode,
+      limit ?? 20,
+      page ?? 1
+    );
+
+    // Precio de venta visible: costo real × (1 + margen%); si el proveedor no
+    // reporta costo (pasa en varios países), base = defaults de admin.
+    const { defAlta, defMes, factor } = await preciosNumero();
+    // El proveedor reporta los costos como strings ("1.00000"): normalizar.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const enriched = (numbers as any[]).map((n) => {
+      const up = parseFloat(n.cost_information?.upfront_cost);
+      const mo = parseFloat(n.cost_information?.monthly_cost);
+      return {
+        ...n,
+        cost_information: {
+          upfront_cost: precioVenta(up, defAlta, factor),
+          monthly_cost: precioVenta(mo, defMes, factor),
+          currency: n.cost_information?.currency ?? "USD",
+        },
+      };
+    });
+
+    res.json({ numbers: enriched, total, page: page ?? 1 });
   } catch (e) {
     logger.error({ error: (e as Error).message }, "Error buscando números Telnyx");
     res.status(500).json({ error: "Error buscando números" });

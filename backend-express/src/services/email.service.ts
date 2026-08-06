@@ -214,6 +214,27 @@ export const emailTemplates = {
       ${buttonHtml(`${process.env.DOMINIO_FRONTEND}/dashboard?tab=recargas`, "Recargar ahora", "#dc2626")}
     `),
   }),
+  numeroSuspendido: (phoneNumber: string, mensual: string, fechaLimite: string) => ({
+    subject: `Número ${phoneNumber} suspendido por saldo`,
+    text: `No pudimos cobrar la renta mensual ($${mensual}) de tu número ${phoneNumber}. Queda suspendido y, si no recargas antes del ${fechaLimite}, se liberará.`,
+    html: baseHtml(`
+      <h2 style="margin:0 0 16px;color:#dc2626;">Número suspendido</h2>
+      <p>No pudimos cobrar la renta mensual (<strong>$${mensual}</strong>) de tu número <strong>${phoneNumber}</strong>.</p>
+      <p>El número quedó suspendido. Si recargas antes del <strong>${fechaLimite}</strong> se reactivará automáticamente;
+      después de esa fecha el número se liberará y deberás comprar uno nuevo.</p>
+      ${buttonHtml(`${process.env.DOMINIO_FRONTEND}/dashboard?tab=recargas`, "Recargar ahora", "#dc2626")}
+    `),
+  }),
+  numeroLiberado: (phoneNumber: string) => ({
+    subject: `Número ${phoneNumber} liberado`,
+    text: `Tu número ${phoneNumber} fue liberado por renta impagada. Cuando recargues podrás comprar un número nuevo.`,
+    html: baseHtml(`
+      <h2 style="margin:0 0 16px;color:#dc2626;">Número liberado</h2>
+      <p>Tu número <strong>${phoneNumber}</strong> fue liberado porque la renta mensual no se pagó dentro del período de gracia.</p>
+      <p>Cuando recargues saldo podrás comprar un número nuevo desde Configuración → Números.</p>
+      ${buttonHtml(`${process.env.DOMINIO_FRONTEND}/dashboard?tab=recargas`, "Recargar ahora", "#dc2626")}
+    `),
+  }),
   alertaSistema: (mensaje: string) => ({
     subject: "⚠️ Alerta de rendimiento - VozIA",
     text: mensaje,

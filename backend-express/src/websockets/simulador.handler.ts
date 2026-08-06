@@ -5,8 +5,11 @@ import { db } from "../models/database.pool";
 import { guardarContexto, obtenerContextoNegocio } from "../services/rag.service";
 import { emitirSSE } from "../sse/events.emitter";
 import { logger } from "../utils/logger";
+import { tieneVozPorEnergia } from "../services/vad.service";
 
 const MODELO = process.env.GEMINI_MODEL || "models/gemini-3.1-flash-live-preview";
+
+import { crearSileroVAD, BargeInGuard, vadConfigManager } from "../services/vad.service";
 
 interface SesionSimulador {
   ws: WebSocket;
@@ -19,6 +22,12 @@ interface SesionSimulador {
   conversacionBuffer: string[];
   transcripts: Array<{ texto: string; rol: string; ts: number }>;
   vad?: any;
+  guard?: BargeInGuard;
+  vadBase: number;
+  vadBoost: number;
+  isSpeaking: boolean;
+  silenceFrames: number;
+  finalizando: boolean;
 }
 
 const sesiones = new Map<string, SesionSimulador>();
@@ -49,6 +58,11 @@ export function registrarSimuladorHandler(wss: WebSocketServer): void {
       contextoGuardado: null,
       conversacionBuffer: [],
       transcripts: [],
+      isSpeaking: false,
+      silenceFrames: 0,
+      finalizando: false,
+      vadBase: 0.62,
+      vadBoost: 0.15
     };
     sesiones.set(callSid, sesion);
 
@@ -58,7 +72,10 @@ export function registrarSimuladorHandler(wss: WebSocketServer): void {
     };
 
     const resetearTimeouts = () => {
-      limpiarTimeouts();
+      // La actividad cancela el aviso de silencio y el cierre por inactividad,
+      // pero NUNCA el cierre programado tras "detener" (finalizando = true).
+      if (sesion.timeoutSilencio) clearTimeout(sesion.timeoutSilencio);
+      if (!sesion.finalizando && sesion.timeoutCierre) clearTimeout(sesion.timeoutCierre);
       sesion.ultimaActividad = Date.now();
       sesion.timeoutSilencio = setTimeout(() => {
         enviarTexto(ws, "¿Sigues ahí? Si necesitas más tiempo, puedes volver a iniciar la conversación.");
@@ -75,12 +92,16 @@ export function registrarSimuladorHandler(wss: WebSocketServer): void {
       limpiarTimeouts();
       try {
         if (s.vad) {
-          s.vad.destroy?.();
+          s.vad.liberar?.();
           s.vad = null;
         }
         if (s.gemini) {
           s.gemini.close();
+          s.gemini = null;
         }
+        // Cierra también el WS del cliente: el frontend vuelve a idle y no
+        // queda un socket huérfano reproduciendo audio de sesiones viejas.
+        s.ws.close();
       } catch (e) {
         logger.warn({ error: (e as Error).message }, "Error cerrando sesión Gemini en simulador");
       }
@@ -109,23 +130,91 @@ export function registrarSimuladorHandler(wss: WebSocketServer): void {
       sesiones.delete(id);
     };
 
+    // Cierra sesiones previas del mismo usuario para evitar sesiones Gemini
+    // fugadas y "dos bots" sonando a la vez tras reconexiones.
+    for (const [idPrevio, sPrevio] of sesiones) {
+      if (idPrevio !== callSid && sPrevio.userId === userId) {
+        logger.info({ userId, callSidPrevio: idPrevio }, "Cerrando sesión previa del simulador (mismo usuario)");
+        cerrarSimulador(idPrevio).catch(() => {});
+      }
+    }
+
+    // Inicializar Silero VAD dinámico (16kHz del navegador) con guardia anti-eco.
+    // SIN await: un await aquí cedería el event loop y el "iniciar" que el
+    // cliente envía al abrir llegaría antes de registrar ws.on("message").
+    vadConfigManager.getConfig().then((vadCfg) => {
+      sesion.vadBase = vadCfg.vad_base_threshold || 0.62;
+      sesion.vadBoost = vadCfg.vad_noise_boost ?? 0.15;
+      sesion.guard = new BargeInGuard(
+        vadCfg.vad_ai_speaking_window ?? 250,
+        vadCfg.vad_ignore_audio_until ?? 500
+      );
+      return crearSileroVAD(
+      () => {
+        const s = sesiones.get(callSid);
+        if (!s || s.finalizando) return; // entrevista terminada: sin barge-in
+        if (s.guard?.debeIgnorarSpeechStart()) {
+          logger.debug({ callSid }, "🔇 Barge-in ignorado (eco inicial o sordera post-interrupción)");
+          return;
+        }
+        s.guard?.registrarInterrupcion();
+        if (s && s.gemini && s.gemini.readyState === WebSocket.OPEN) {
+          logger.info("🎤 Usuario empezó a hablar (Silero ML) -> Interrumpiendo IA");
+          s.gemini.send(JSON.stringify({ clientContent: { turns: [], turnComplete: false } }));
+        }
+        // El cliente detiene de inmediato el audio encolado (sin esperar el
+        // "interrupted" de Gemini, que llega tarde) y muestra "Escuchando...".
+        if (s && s.ws.readyState === WebSocket.OPEN) {
+          s.ws.send(JSON.stringify({ tipo: "interrumpir" }));
+          s.ws.send(JSON.stringify({ tipo: "estado", estado: "escuchando" }));
+        }
+      },
+      () => {
+        const s = sesiones.get(callSid);
+        if (!s || s.finalizando) return;
+        if (s && s.gemini && s.gemini.readyState === WebSocket.OPEN) {
+          logger.info("🛑 Usuario terminó de hablar (Silero ML) -> IA procesando respuesta");
+          s.gemini.send(JSON.stringify({ clientContent: { turns: [], turnComplete: true } }));
+        }
+        if (s && s.ws.readyState === WebSocket.OPEN) {
+          s.ws.send(JSON.stringify({ tipo: "estado", estado: "procesando" }));
+        }
+      },
+      16000
+      );
+    }).then(vad => {
+      if (vad && sesiones.has(callSid)) {
+        sesiones.get(callSid)!.vad = vad;
+      }
+    }).catch((e) => {
+      logger.error({ error: (e as Error).message, callSid }, "Error inicializando VAD del simulador");
+    });
+
     ws.on("message", async (data) => {
       try {
         const msg = JSON.parse(data.toString());
 
         if (msg.tipo === "audio" && msg.base64 && sesion.gemini && sesion.gemini.readyState === WebSocket.OPEN) {
-          if (sesion.vad) {
-            try {
-              const buffer = Buffer.from(msg.base64, "base64");
-              const int16 = new Int16Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / 2);
+          if (sesion.finalizando) return;
+          try {
+            const buffer = Buffer.from(msg.base64, "base64");
+            const int16 = new Int16Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / 2);
+            
+            if (sesion.vad) {
               const float32 = new Float32Array(int16.length);
               for (let i = 0; i < int16.length; i++) {
                 float32[i] = int16[i] / 32768.0;
               }
-              sesion.vad.processAudio(float32);
-            } catch (e) {
-              logger.warn({ error: (e as Error).message }, "Error procesando VAD");
+              // Umbral adaptativo (vad_noise_boost): más estricto mientras la IA habla
+              sesion.vad.setUmbral(
+                sesion.guard?.iaHablando()
+                  ? Math.min(1, sesion.vadBase + sesion.vadBoost)
+                  : sesion.vadBase
+              );
+              sesion.vad.process(float32);
             }
+          } catch (e) {
+            logger.warn({ error: (e as Error).message }, "Error procesando VAD");
           }
 
           sesion.gemini.send(JSON.stringify({
@@ -147,6 +236,8 @@ export function registrarSimuladorHandler(wss: WebSocketServer): void {
         }
 
         if (msg.tipo === "detener") {
+          sesion.finalizando = true;
+          limpiarTimeouts();
           if (sesion.gemini && sesion.gemini.readyState === WebSocket.OPEN) {
             enviarTexto(sesion.ws, "Finalizando entrevista. Guardando la configuración...");
             sesion.gemini.send(JSON.stringify({
@@ -158,7 +249,7 @@ export function registrarSimuladorHandler(wss: WebSocketServer): void {
                 turnComplete: true
               }
             }));
-            // Forzar cierre tras 20 segundos para dar tiempo a que guarde
+            logger.info({ action: "finalizar" }, "🛠️ IA usando herramienta de finalización");
             if (sesion.timeoutCierre) clearTimeout(sesion.timeoutCierre);
             sesion.timeoutCierre = setTimeout(() => {
               cerrarSimulador(callSid).catch(() => {});
@@ -209,22 +300,15 @@ async function iniciarSesionGemini(sesion: SesionSimulador, callSid: string, cer
     const systemPrompt = construirPromptEntrevista(contexto, idioma);
     const aiVoice = settings?.aiVoice || "Puck";
 
-    try {
-      sesion.vad = await RealTimeVAD.new({
-        onSpeechEnd: () => {
-          if (sesion.gemini && sesion.gemini.readyState === WebSocket.OPEN) {
-            logger.info({ userId: sesion.userId }, "VAD: Fin de habla detectado, enviando turnComplete");
-            sesion.gemini.send(JSON.stringify({
-              clientContent: {
-                turns: [],
-                turnComplete: true
-              }
-            }));
-          }
-        },
-      });
-    } catch (err) {
-      logger.error({ error: (err as Error).message }, "Error inicializando VAD");
+    // Si ya había una sesión Gemini viva (reintento / "iniciar" duplicado),
+    // cerrarla antes para que no queden dos bots respondiendo a la vez.
+    if (sesion.gemini) {
+      try {
+        sesion.gemini.close();
+      } catch (e) {
+        logger.warn({ error: (e as Error).message }, "Error cerrando sesión Gemini previa");
+      }
+      sesion.gemini = null;
     }
 
     const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${apiKey}`;
@@ -233,6 +317,7 @@ async function iniciarSesionGemini(sesion: SesionSimulador, callSid: string, cer
 
     geminiWs.on("open", () => {
       logger.info({ callSid }, "Simulador Gemini session opened via raw WebSocket");
+      logger.info("🤖 IA iniciada y lista para escuchar (Simulador)");
       const setupMsg = {
         setup: {
           model: MODELO,
@@ -256,15 +341,15 @@ async function iniciarSesionGemini(sesion: SesionSimulador, callSid: string, cer
     geminiWs.on("message", async (data) => {
       try {
         const msg = JSON.parse(data.toString());
+        // debug: sessionResumptionUpdate/serverContent llegan cientos de veces por minuto
+        logger.debug({ msgType: Object.keys(msg)[0] }, "Mensaje crudo recibido de Gemini");
 
         if (msg.setupComplete) {
+          // El frontend secuencia los estados de UI ("iniciada" → "comienza a
+          // hablar") al recibir "listo"; ya no se envían como texto de chat.
           if (sesion.ws.readyState === WebSocket.OPEN) {
             sesion.ws.send(JSON.stringify({ tipo: "listo" }));
           }
-          enviarTexto(sesion.ws, "Asistente personal de configuración iniciada.");
-          setTimeout(() => {
-            enviarTexto(sesion.ws, "Comienza a hablar ahora.");
-          }, 500);
           return;
         }
 
@@ -277,6 +362,7 @@ async function iniciarSesionGemini(sesion: SesionSimulador, callSid: string, cer
           if (msg.serverContent.modelTurn && msg.serverContent.modelTurn.parts) {
           for (const part of msg.serverContent.modelTurn.parts) {
             if (part.inlineData && part.inlineData.mimeType?.startsWith("audio")) {
+              sesion.guard?.registrarVozIA();
               enviarAudio(sesion.ws, part.inlineData.data, part.inlineData.mimeType);
             }
             if (part.text) {
@@ -293,41 +379,48 @@ async function iniciarSesionGemini(sesion: SesionSimulador, callSid: string, cer
               emitirSSE(sesion.userId, "transcripcion", { texto: part.text, rol: "ai" });
               logger.info({ texto: part.text }, "Transcripción simulador IA");
             }
-            if (part.functionCall) {
-              const { name, args } = part.functionCall;
-              if (name === "guardar_contexto") {
-                const rawContext = args.raw_context as string;
-                sesion.contextoGuardado = rawContext;
-                enviarTexto(sesion.ws, "¡Contexto guardado! Puedes editarlo en el panel y volver a guardar.");
-                await guardarContexto(sesion.userId, rawContext, "save");
-                emitirSSE(sesion.userId, "contexto_guardado", { contexto: rawContext });
-                logger.info({ userId: sesion.userId }, "Contexto guardado desde simulador");
-                
-                // Si había un cierre programado, lo cancelamos y cerramos inmediatamente
-                if (sesion.timeoutCierre) {
-                  clearTimeout(sesion.timeoutCierre);
-                  setTimeout(() => {
-                    cerrarSimulador(callSid).catch(() => {});
-                  }, 1000); // 1 segundo de gracia para enviar el mensaje de confirmación
-                }
+          }
+        }
+        }
+        
+        if (msg.toolCall && msg.toolCall.functionCalls) {
+          for (const call of msg.toolCall.functionCalls) {
+            logger.info({ tool: call.name }, "🛠️ IA usa herramienta");
+            if (call.name === "guardar_contexto") {
+              const rawContext = call.args.raw_context as string;
+              sesion.contextoGuardado = rawContext;
+              enviarTexto(sesion.ws, "¡Contexto guardado! Puedes editarlo en el panel y volver a guardar.");
+              // Actualiza el panel de contexto del frontend en vivo
+              if (sesion.ws.readyState === WebSocket.OPEN) {
+                sesion.ws.send(JSON.stringify({ tipo: "contexto", contexto: rawContext }));
               }
+              await guardarContexto(sesion.userId, rawContext, "save");
+              emitirSSE(sesion.userId, "contexto_guardado", { contexto: rawContext });
+              logger.info({ userId: sesion.userId }, "Contexto guardado desde simulador");
 
-              // Send function response back
-              geminiWs.send(JSON.stringify({
-                clientContent: {
-                  turnComplete: true,
-                  turns: [{
-                    role: "user",
-                    parts: [{
-                      functionResponse: {
-                        name: name,
-                        response: { ok: true }
-                      }
-                    }]
-                  }]
-                }
-              }));
-            }
+              // La entrevista terminó: ignora audio posterior y cierra tras la
+              // despedida (8s de gracia para reproducirla completa).
+              sesion.finalizando = true;
+              if (sesion.timeoutCierre) clearTimeout(sesion.timeoutCierre);
+              sesion.timeoutCierre = setTimeout(() => {
+                cerrarSimulador(callSid).catch(() => {});
+              }, 8000);
+
+            // Send function response back (Live API format)
+            geminiWs.send(JSON.stringify({
+              toolResponse: {
+                functionResponses: [
+                  {
+                    id: call.id,
+                    name: call.name,
+                    response: { 
+                      status: "success",
+                      voice_instruction: "El contexto se guardó correctamente. Di exactamente: '¡Listo! He guardado toda la información de tu negocio. Hasta luego.' y no digas nada más."
+                    }
+                  }
+                ]
+              }
+            }));
           }
         }
         }
@@ -364,6 +457,8 @@ Eres un asistente profesional encargado de configurar los detalles de un negocio
 ${contexto}
 - Si el usuario menciona querer cambiar algo, actualiza solo esa parte. Si dice "empezar de cero", responde con "REINICIAR_CONTEXTO" y entrevista de nuevo.
 - Cuando tengas toda la información, da un resumen final y llama a la herramienta guardar_contexto.
+- NUNCA inventes información del negocio; si no entiendes algo, pregunta de nuevo en lugar de suponer.
+- Antes de llamar a guardar_contexto, di una frase breve para cubrir la espera, variando sinónimos: "Un momento, por favor", "Permíteme un segundo", "Voy a guardar toda esta información". Después retoma con la confirmación.
 - Sé profesional y enfocado. Habla en ${idioma === "es" ? "español" : "inglés"}.
     `.trim();
   }
@@ -374,9 +469,11 @@ Eres un asistente profesional encargado de configurar los detalles de un negocio
 ## INSTRUCCIONES
 - Empieza la interacción diciendo exactamente: "Hola un gusto, te ayudaré a configurar tu negocio, todo lo que se hable en esta entrevista, es la información que le diré a tus clientes al responder tus llamadas, entonces comienzo a preguntarte sobre tu negocio ¿está bien?"
 - Tu único objetivo es obtener los detalles operativos del negocio del usuario (servicios, horarios, precios, recursos, políticas).
+- Si te dicen "listo", "me gusta", "guárdalo", "ya terminé", o confirman que el resumen está bien, DEBES llamar OBLIGATORIAMENTE a la función guardar_contexto enviando todo el resumen en texto plano en el parámetro 'raw_context'.
 - NUNCA hables de tu stack tecnológico, ni de programación, ni de detalles técnicos sobre cómo funcionas. No pierdas el foco de la configuración del negocio.
+- NUNCA inventes información del negocio; si no entiendes algo, pregunta de nuevo en lugar de suponer.
+- Antes de llamar a guardar_contexto, di una frase breve para cubrir la espera, variando sinónimos: "Un momento, por favor", "Permíteme un segundo", "Voy a guardar toda esta información". Después retoma con la confirmación.
 - Haz las preguntas una por una, de forma natural.
-- Cuando tengas suficiente información, da un resumen y llama a la herramienta guardar_contexto.
 - Sé profesional, servicial y conciso. Habla en ${idioma === "es" ? "español" : "inglés"}.
   `.trim();
 }
@@ -385,7 +482,7 @@ function obtenerHerramientasSimulador(): Array<any> {
   return [
     {
       name: "guardar_contexto",
-      description: "Guarda el contexto del negocio. Solo usar cuando el usuario confirme que la información está completa.",
+      description: "Guarda el contexto del negocio. Úsala OBLIGATORIAMENTE cuando el usuario confirme que la información está completa o diga 'me gusta'.",
       parameters: {
         type: "OBJECT",
         properties: {

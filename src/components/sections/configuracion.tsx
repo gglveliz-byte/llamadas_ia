@@ -82,13 +82,24 @@ const TIMEZONES = [
 ];
 
 export function ConfiguracionSection() {
-  const { usuario } = useAppStore();
+  const { usuario, refreshWallet } = useAppStore();
   const [settings, setSettings] = React.useState<BusinessSettings | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [searchModalOpen, setSearchModalOpen] = React.useState(false);
   const [phoneNumbers, setPhoneNumbers] = React.useState<
-    Array<{ id: number; phoneNumber: string; countryCode: string; isActive: boolean; purchasedAt: string }>
+    Array<{
+      id: number;
+      phoneNumber: string;
+      countryCode: string;
+      isActive: boolean;
+      purchasedAt: string;
+      monthlyCost?: string | number | null;
+      currency?: string | null;
+      lastMonthlyChargeAt?: string | null;
+      suspensionAt?: string | null;
+      releasedAt?: string | null;
+    }>
   >([]);
 
   const cargar = React.useCallback(async () => {
@@ -131,15 +142,24 @@ export function ConfiguracionSection() {
     }
   };
 
-  const comprarNumeroSeleccionado = async (phoneNumber: string) => {
-    if (!usuario) return;
+  const comprarNumeroSeleccionado = async (numero: NumeroDisponible) => {
+    if (!usuario) return false;
     try {
-      await ApiClient.post("/api/phone-numbers", { userId: usuario.id, phoneNumber });
-      toast.success("Número comprado correctamente");
+      await ApiClient.post("/api/phone-numbers", {
+        userId: usuario.id,
+        phoneNumber: numero.phone_number,
+        upfrontCost: numero.cost_information?.upfront_cost,
+        monthlyCost: numero.cost_information?.monthly_cost,
+        currency: numero.cost_information?.currency,
+      });
+      toast.success(`Número ${numero.phone_number} contratado. El alta se descontó de tu saldo.`);
       setSearchModalOpen(false);
+      refreshWallet();
       cargar();
+      return true;
     } catch (e) {
-      toast.error("Error: " + (e as Error).message);
+      toast.error((e as Error).message);
+      return false;
     }
   };
 
@@ -297,6 +317,21 @@ export function ConfiguracionSection() {
               </div>
             </div>
 
+            <div className="space-y-2">
+              <Label>Saludo personalizado de la IA (opcional)</Label>
+              <Input
+                placeholder="Ej: ¡Hola! Gracias por llamar a mi negocio. ¿En qué puedo ayudarte hoy?"
+                maxLength={500}
+                value={settings.mensajeSaludo ?? ""}
+                onChange={(e) => setSettings({ ...settings, mensajeSaludo: e.target.value })}
+                onBlur={() => guardar({ mensajeSaludo: settings.mensajeSaludo || null })}
+              />
+              <p className="text-xs text-muted-foreground">
+                Es lo primero que dirá la IA al contestar cada llamada. Si lo dejas vacío, la IA se
+                presentará sola con el nombre de tu negocio.
+              </p>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label>Duración default (min)</Label>
@@ -430,7 +465,7 @@ export function ConfiguracionSection() {
             <div className="px-6 py-3 border-b border-amber-500/30 bg-amber-500/10 text-xs text-amber-700 dark:text-amber-400 flex items-center gap-2">
               <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
               <span>
-                Tu telefonía está en configuración (se está creando tu cuenta en Telnyx).
+                Tu telefonía está en activación.
                 Si no puedes comprar números, vuelve a intentarlo en unos minutos.
               </span>
             </div>
@@ -443,22 +478,52 @@ export function ConfiguracionSection() {
                     No tienes números. Compra uno para empezar a recibir llamadas.
                   </div>
                 ) : (
-                  phoneNumbers.map((n) => (
-                    <div key={n.id} className="p-3 flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                        <Phone className="h-4 w-4 text-primary" />
-                      </div>
-                      <div className="flex-1">
-                        <div className="text-sm font-semibold font-mono">{n.phoneNumber}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {n.countryCode} · Comprado {new Date(n.purchasedAt).toLocaleDateString("es-MX")}
+                  phoneNumbers.map((n) => {
+                    const mensual =
+                      typeof n.monthlyCost === "string" ? parseFloat(n.monthlyCost) : (n.monthlyCost ?? 0);
+                    const base = new Date(n.lastMonthlyChargeAt ?? n.purchasedAt).getTime();
+                    const proximoCobro = new Date(base + 30 * 86400000);
+                    return (
+                      <div key={n.id} className="p-3 flex items-center gap-3">
+                        <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                          <Phone className="h-4 w-4 text-primary" />
                         </div>
+                        <div className="flex-1">
+                          <div className="text-sm font-semibold font-mono">{n.phoneNumber}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {n.countryCode} · Comprado {new Date(n.purchasedAt).toLocaleDateString("es-MX")}
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            {n.releasedAt ? (
+                              <span className="text-red-600 dark:text-red-400">
+                                Liberado el {new Date(n.releasedAt).toLocaleDateString("es-MX")} por renta
+                                impagada. Compra un número nuevo para recibir llamadas.
+                              </span>
+                            ) : !n.isActive && n.suspensionAt ? (
+                              <span className="text-amber-600 dark:text-amber-400">
+                                Suspendido por renta impagada el{" "}
+                                {new Date(n.suspensionAt).toLocaleDateString("es-MX")}. Recarga para
+                                reactivarlo; si no, se liberará.
+                              </span>
+                            ) : mensual > 0 ? (
+                              <>
+                                Renta ${fmtMoney(mensual)} {n.currency || "USD"}/mes · próximo cobro{" "}
+                                {proximoCobro.toLocaleDateString("es-MX")}
+                              </>
+                            ) : (
+                              "Sin renta mensual registrada"
+                            )}
+                          </div>
+                        </div>
+                        <Badge
+                          variant={n.releasedAt ? "secondary" : n.isActive ? "default" : "secondary"}
+                          className={n.releasedAt ? "text-red-600 border-red-500/30" : !n.isActive ? "text-amber-600 border-amber-500/30" : ""}
+                        >
+                          {n.releasedAt ? "Liberado" : n.isActive ? "Activo" : "Suspendido"}
+                        </Badge>
                       </div>
-                      <Badge variant={n.isActive ? "default" : "secondary"}>
-                        {n.isActive ? "Activo" : "Inactivo"}
-                      </Badge>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </ScrollArea>
@@ -677,6 +742,57 @@ function RecursosEditor({
   );
 }
 
+interface NumeroDisponible {
+  phone_number: string;
+  national_format?: string;
+  locality?: string;
+  region?: string;
+  area_code?: string;
+  cost_information?: {
+    upfront_cost?: number | string;
+    monthly_cost?: number | string;
+    currency?: string;
+  };
+}
+
+const costoAlta = (n: NumeroDisponible) =>
+  parseFloat(String(n.cost_information?.upfront_cost ?? "")) || 0;
+
+// Telnyx puede reportar costos como string ("1.00000"): siempre normalizar
+const fmtMoney = (v?: number | string | null) => {
+  const n = typeof v === "string" ? parseFloat(v) : v;
+  return (typeof n === "number" && isFinite(n) ? n : 0).toFixed(2);
+};
+
+const PAISES: Record<string, string> = {
+  US: "Estados Unidos",
+  MX: "México",
+  CO: "Colombia",
+  ES: "España",
+  EC: "Ecuador",
+  AR: "Argentina",
+  CL: "Chile",
+  PE: "Perú",
+  BR: "Brasil",
+  CA: "Canadá",
+  GB: "Reino Unido",
+  AU: "Australia",
+  FR: "Francia",
+  DE: "Alemania",
+  IT: "Italia",
+  PR: "Puerto Rico",
+  DO: "República Dominicana",
+  PA: "Panamá",
+  CR: "Costa Rica",
+  UY: "Uruguay",
+  PY: "Paraguay",
+  BO: "Bolivia",
+  GT: "Guatemala",
+  SV: "El Salvador",
+  HN: "Honduras",
+  NI: "Nicaragua",
+};
+
 function SearchNumbersModal({
   open,
   onClose,
@@ -684,38 +800,169 @@ function SearchNumbersModal({
 }: {
   open: boolean;
   onClose: () => void;
-  onPurchase: (phoneNumber: string) => Promise<void>;
+  onPurchase: (numero: NumeroDisponible) => Promise<boolean>;
 }) {
+  const { usuario } = useAppStore();
   const [country, setCountry] = React.useState("US");
   const [areaCode, setAreaCode] = React.useState("");
   const [loading, setLoading] = React.useState(false);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [results, setResults] = React.useState<any[]>([]);
+  const [searched, setSearched] = React.useState(false);
+  const [error, setError] = React.useState("");
+  const [results, setResults] = React.useState<NumeroDisponible[]>([]);
+  const [saldo, setSaldo] = React.useState<number | null>(null);
+  const [confirmando, setConfirmando] = React.useState<NumeroDisponible | null>(null);
+  const [comprando, setComprando] = React.useState(false);
+  const [page, setPage] = React.useState(1);
+  const [total, setTotal] = React.useState<number | null>(null);
+  const [loadingMore, setLoadingMore] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!open || !usuario) return;
+    setConfirmando(null);
+    setError("");
+    ApiClient.get<{ wallet: { saldo: number } }>(`/api/wallet?userId=${usuario.id}`)
+      .then((w) => setSaldo(Number(w.wallet?.saldo ?? 0)))
+      .catch(() => setSaldo(null));
+  }, [open, usuario]);
+
+  const fetchPage = async (p: number, append: boolean) => {
+    const q = new URLSearchParams({ countryCode: country, limit: "20", page: String(p) });
+    if (areaCode) q.append("areaCode", areaCode);
+    const res = await ApiClient.get<{ numbers: NumeroDisponible[]; total?: number | null }>(
+      `/api/phone-numbers/search?${q.toString()}`
+    );
+    const nums = res.numbers || [];
+    setResults((prev) => (append ? [...prev, ...nums] : nums));
+    setTotal(res.total ?? null);
+    setPage(p);
+    setSearched(true);
+  };
 
   const search = async () => {
     setLoading(true);
+    setError("");
     try {
-      const q = new URLSearchParams({ countryCode: country });
-      if (areaCode) q.append("areaCode", areaCode);
-      const res = await ApiClient.get<{ numbers: any[] }>(`/api/phone-numbers/search?${q.toString()}`);
-      setResults(res.numbers || []);
+      await fetchPage(1, false);
     } catch (e) {
-      toast.error((e as Error).message);
+      setError((e as Error).message || "No se pudo buscar. Intenta de nuevo.");
     } finally {
       setLoading(false);
     }
   };
 
+  const cargarMas = async () => {
+    setLoadingMore(true);
+    setError("");
+    try {
+      await fetchPage(page + 1, true);
+    } catch (e) {
+      setError((e as Error).message || "No se pudo cargar más.");
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  const confirmarCompra = async () => {
+    if (!confirmando) return;
+    setComprando(true);
+    try {
+      const ok = await onPurchase(confirmando);
+      if (ok) setConfirmando(null);
+    } finally {
+      setComprando(false);
+    }
+  };
+
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <DialogContent className="sm:max-w-[425px]">
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && !comprando && onClose()}>
+      <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Buscar Números Disponibles</DialogTitle>
-          <DialogDescription>
-            Busca y selecciona un número telefónico para tu negocio.
+          <DialogTitle>Contratar número telefónico</DialogTitle>
+          <DialogDescription className="flex items-center justify-between gap-2">
+            <span>Elige el número con el que tu IA atenderá llamadas.</span>
+            {saldo !== null && (
+              <Badge variant="outline" className="shrink-0 text-emerald-600 border-emerald-500/30">
+                Saldo: ${saldo.toFixed(2)}
+              </Badge>
+            )}
           </DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4 py-4">
+
+        <div className="rounded-lg bg-blue-500/5 border border-blue-500/20 p-3 text-xs text-muted-foreground space-y-1">
+          <p className="font-semibold text-blue-700 dark:text-blue-300">
+            ¿Cómo se paga un número?
+          </p>
+          <p>
+            • <strong className="text-foreground">Activación</strong> (pago único): se descuenta
+            una sola vez al comprar.
+          </p>
+          <p>
+            • <strong className="text-foreground">Renta mensual</strong> (suscripción): se
+            descuenta cada 30 días y mantiene el número activo recibiendo llamadas.
+          </p>
+          <p>
+            Ambos cargos van a tu saldo VozIA. Los números no se compran para siempre: las redes
+            telefónicas los rentan mes a mes; si cancelas la renta, el número se libera.
+          </p>
+        </div>
+
+        {confirmando ? (
+          <div className="space-y-4 py-2">
+            <div className="rounded-lg border border-border p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <Phone className="h-4 w-4 text-primary" />
+                <span className="font-mono font-semibold text-sm">
+                  {confirmando.national_format || confirmando.phone_number}
+                </span>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {[confirmando.locality, confirmando.region].filter(Boolean).join(", ") || "Ubicación no disponible"}
+              </div>
+              <div className="rounded-md bg-muted p-3 space-y-1 text-xs">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-muted-foreground">
+                    Pagas hoy · activación (pago único)
+                  </span>
+                  <span className="font-semibold text-sm text-foreground">
+                    ${fmtMoney(confirmando.cost_information?.upfront_cost)}{" "}
+                    {confirmando.cost_information?.currency || "USD"}
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-muted-foreground">Después · renta cada 30 días</span>
+                  <span className="font-semibold text-sm text-foreground">
+                    ${fmtMoney(confirmando.cost_information?.monthly_cost)}{" "}
+                    {confirmando.cost_information?.currency || "USD"}/mes
+                  </span>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Ambos cargos se descuentan de tu saldo VozIA (no se cobra por Whop ni se crea
+                suscripción externa). La renta se cobra cada 30 días; si el saldo no alcanza, el
+                número se suspende y, tras unos días de gracia sin pagar, se libera y deberás
+                comprar uno nuevo.
+              </p>
+              {saldo !== null && saldo < costoAlta(confirmando) && (
+                <div className="rounded-md bg-amber-500/10 border border-amber-500/30 p-2 text-xs text-amber-700 dark:text-amber-400 flex items-center gap-2">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  Saldo insuficiente para el pago de alta. Recarga en la sección Recargas.
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setConfirmando(null)} disabled={comprando}>
+                Cancelar
+              </Button>
+              <Button
+                onClick={confirmarCompra}
+                disabled={comprando || (saldo !== null && saldo < costoAlta(confirmando))}
+              >
+                {comprando ? "Comprando..." : "Confirmar compra"}
+              </Button>
+            </div>
+          </div>
+        ) : (
+        <div className="grid gap-4 py-2">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>País</Label>
@@ -724,32 +971,11 @@ function SearchNumbersModal({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="US">Estados Unidos</SelectItem>
-                  <SelectItem value="MX">México</SelectItem>
-                  <SelectItem value="CO">Colombia</SelectItem>
-                  <SelectItem value="ES">España</SelectItem>
-                  <SelectItem value="EC">Ecuador</SelectItem>
-                  <SelectItem value="AR">Argentina</SelectItem>
-                  <SelectItem value="CL">Chile</SelectItem>
-                  <SelectItem value="PE">Perú</SelectItem>
-                  <SelectItem value="BR">Brasil</SelectItem>
-                  <SelectItem value="CA">Canadá</SelectItem>
-                  <SelectItem value="GB">Reino Unido</SelectItem>
-                  <SelectItem value="AU">Australia</SelectItem>
-                  <SelectItem value="FR">Francia</SelectItem>
-                  <SelectItem value="DE">Alemania</SelectItem>
-                  <SelectItem value="IT">Italia</SelectItem>
-                  <SelectItem value="PR">Puerto Rico</SelectItem>
-                  <SelectItem value="DO">República Dominicana</SelectItem>
-                  <SelectItem value="PA">Panamá</SelectItem>
-                  <SelectItem value="CR">Costa Rica</SelectItem>
-                  <SelectItem value="UY">Uruguay</SelectItem>
-                  <SelectItem value="PY">Paraguay</SelectItem>
-                  <SelectItem value="BO">Bolivia</SelectItem>
-                  <SelectItem value="GT">Guatemala</SelectItem>
-                  <SelectItem value="SV">El Salvador</SelectItem>
-                  <SelectItem value="HN">Honduras</SelectItem>
-                  <SelectItem value="NI">Nicaragua</SelectItem>
+                  {Object.entries(PAISES).map(([code, label]) => (
+                    <SelectItem key={code} value={code}>
+                      {label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -757,8 +983,9 @@ function SearchNumbersModal({
               <Label>Código de área (Opcional)</Label>
               <Input
                 placeholder="Ej. 212"
+                inputMode="numeric"
                 value={areaCode}
-                onChange={(e) => setAreaCode(e.target.value)}
+                onChange={(e) => setAreaCode(e.target.value.replace(/\D/g, "").slice(0, 4))}
               />
             </div>
           </div>
@@ -766,32 +993,124 @@ function SearchNumbersModal({
             {loading ? "Buscando..." : "Buscar números"}
           </Button>
 
-          {results.length > 0 && (
-            <ScrollArea className="h-64 mt-4 rounded-md border p-2">
-              <div className="space-y-2">
-                {results.map((n) => (
-                  <div key={n.phone_number} className="flex items-center justify-between p-2 border rounded-md">
-                    <div>
-                      <div className="font-mono text-sm font-semibold">{n.phone_number}</div>
-                      <div className="text-xs text-muted-foreground">{n.locality || "N/A"}</div>
-                      {n.cost_information && (
-                        <div className="text-xs text-green-600 font-medium mt-1">
-                          Alta: ${n.cost_information.upfront_cost} | Mes: ${n.cost_information.monthly_cost} {n.cost_information.currency}
-                        </div>
-                      )}
-                    </div>
-                    <Button size="sm" onClick={() => onPurchase(n.phone_number)}>
-                      Comprar
-                    </Button>
-                  </div>
-                ))}
+          {error && (
+            <div className="rounded-md bg-destructive/10 border border-destructive/30 p-3 text-xs text-destructive flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                {error}
+              </span>
+              <Button variant="outline" size="sm" onClick={search}>
+                Reintentar
+              </Button>
+            </div>
+          )}
+
+          {loading && (
+            <div className="space-y-2 mt-2">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="h-16 rounded-md bg-muted animate-pulse" />
+              ))}
+            </div>
+          )}
+
+          {!loading && searched && results.length === 0 && !error && (
+            <div className="text-sm text-center text-muted-foreground py-10 space-y-1.5">
+              <p className="font-medium text-foreground">
+                No hay números disponibles en {PAISES[country] ?? country} por ahora.
+              </p>
+              <p className="text-xs">La cobertura varía según el país.</p>
+              <p className="text-xs">
+                Prueba con Estados Unidos, México o Colombia, o intenta sin código de área.
+              </p>
+            </div>
+          )}
+
+          {!loading && !searched && !error && (
+            <div className="text-sm text-center text-muted-foreground py-10">
+              Busca para ver los números disponibles con sus precios.
+            </div>
+          )}
+
+          {!loading && results.length > 0 && (
+            <div className="mt-2 space-y-2">
+              <div className="text-xs text-muted-foreground">
+                Mostrando {results.length}
+                {total !== null ? ` de ${total}` : ""} números en {PAISES[country] ?? country} ·
+                precios en {results[0]?.cost_information?.currency || "USD"}
               </div>
-            </ScrollArea>
+              <ScrollArea className="h-[50vh] rounded-lg border p-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {results.map((n) => {
+                    const upfront = costoAlta(n);
+                    const insuficiente = saldo !== null && saldo < upfront;
+                    return (
+                      <div
+                        key={n.phone_number}
+                        className="rounded-lg border border-border p-4 space-y-3 hover:border-primary/40 transition-colors"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="font-mono text-base font-semibold truncate">
+                              {n.national_format || n.phone_number}
+                            </div>
+                            <div className="text-xs text-muted-foreground mt-0.5">
+                              {[n.locality, n.region].filter(Boolean).join(", ") ||
+                                (n.area_code ? `Código de área ${n.area_code}` : PAISES[country] ?? country)}
+                            </div>
+                          </div>
+                          <Button
+                            size="sm"
+                            disabled={insuficiente}
+                            onClick={() => setConfirmando(n)}
+                          >
+                            Comprar
+                          </Button>
+                        </div>
+                        <div className="rounded-md bg-muted p-3 space-y-1 text-xs">
+                          <div className="flex items-baseline justify-between gap-2">
+                            <span className="text-muted-foreground">Pagas hoy (activación)</span>
+                            <span className="font-semibold text-sm text-foreground">
+                              ${fmtMoney(n.cost_information?.upfront_cost)}
+                            </span>
+                          </div>
+                          <div className="flex items-baseline justify-between gap-2">
+                            <span className="text-muted-foreground">Después (renta mensual)</span>
+                            <span className="font-semibold text-sm text-foreground">
+                              ${fmtMoney(n.cost_information?.monthly_cost)}/mes
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-muted-foreground pt-1">
+                            El pago único no es de por vida: es la activación. La renta mantiene el
+                            número activo.
+                          </p>
+                        </div>
+                        {insuficiente && (
+                          <div className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                            <AlertTriangle className="h-3 w-3" />
+                            Saldo insuficiente para el pago de alta.
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </ScrollArea>
+              {total !== null && results.length < total && (
+                <div className="flex justify-center pt-2">
+                  <Button variant="outline" size="sm" onClick={cargarMas} disabled={loadingMore}>
+                    {loadingMore
+                      ? "Cargando..."
+                      : `Cargar más (${total - results.length} restantes)`}
+                  </Button>
+                </div>
+              )}
+            </div>
           )}
-          {results.length === 0 && !loading && (
-             <div className="text-sm text-center text-muted-foreground mt-4">Busca para ver los resultados disponibles.</div>
-          )}
+          <p className="text-[11px] text-muted-foreground">
+            Los costos los descuenta VozIA de tu saldo: la activación al comprar y la renta cada 30 días.
+          </p>
         </div>
+        )}
       </DialogContent>
     </Dialog>
   );

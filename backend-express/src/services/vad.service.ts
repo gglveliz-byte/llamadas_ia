@@ -7,10 +7,66 @@
  * que WebRTC VAD espera (10/20/30ms @ 8kHz).
  */
 import vadFactory, { type WebrtcVadModule } from "@ennuicastr/webrtcvad.js";
+import { RealTimeVAD } from "@ericedouard/vad-node-realtime";
 import { logger } from "../utils/logger";
 import { db } from "../models/database.pool";
 
 const UMBRAL_ENERGIA_DBFS = -40;
+
+export class VADAccumulator {
+  private buffer = new Float32Array(0);
+  private chunkSize = 512;
+  private vad: RealTimeVAD;
+  private processingPromise = Promise.resolve();
+
+  constructor(vad: RealTimeVAD) {
+    this.vad = vad;
+  }
+
+  /**
+   * Ajusta el umbral de voz en caliente (vad_noise_boost adaptativo).
+   * Defensivo: si los internals de la librería cambian, simplemente no aplica.
+   */
+  setUmbral(umbral: number) {
+    try {
+      const opciones = (this.vad as any)?.frameProcessor?.options;
+      if (opciones) opciones.positiveSpeechThreshold = umbral;
+    } catch {}
+  }
+  
+  process(newData: Float32Array) {
+    const combined = new Float32Array(this.buffer.length + newData.length);
+    combined.set(this.buffer, 0);
+    combined.set(newData, this.buffer.length);
+    
+    const chunks: Float32Array[] = [];
+    let offset = 0;
+    while (offset + this.chunkSize <= combined.length) {
+      chunks.push(combined.slice(offset, offset + this.chunkSize));
+      offset += this.chunkSize;
+    }
+    this.buffer = combined.slice(offset);
+
+    this.processingPromise = this.processingPromise.then(async () => {
+      for (const chunk of chunks) {
+        try {
+          await this.vad.processAudio(chunk);
+        } catch (e) {
+          logger.warn({ error: (e as Error).message }, "VAD chunk error");
+        }
+      }
+    });
+  }
+
+  liberar() {
+    // Liberar referencias y detener VAD si tiene stop()
+    try {
+      if ((this.vad as any).stop) {
+        (this.vad as any).stop();
+      }
+    } catch {}
+  }
+}
 
 /**
  * Gestor de configuración VAD dinámico. Lee los valores del AdminConfig
@@ -48,6 +104,56 @@ export class VadConfigManager {
 }
 
 export const vadConfigManager = new VadConfigManager();
+
+/**
+ * Guardia anti-eco / anti-fantasma para barge-in.
+ * - vad_ai_speaking_window: inmunidad anti-eco mientras la IA habla y hasta
+ *   X ms después de su último audio (su propia voz no debe interrumpirla).
+ * - vad_ignore_audio_until: sordera post-interrupción para evitar que el
+ *   audio residual ("fantasma") re-dispare el barge-in.
+ */
+export class BargeInGuard {
+  private ultimaVozIA = 0;
+  private inicioVozIA = 0;
+  private ultimaInterrupcion = 0;
+
+  constructor(
+    private aiWindowMs: number,
+    private ignoreMs: number
+  ) {}
+
+  /** Registrar cada chunk de audio de la IA enviado al cliente/Telnyx. */
+  registrarVozIA() {
+    const now = Date.now();
+    // Si hubo una pausa > 300ms, arranca una nueva intervención de la IA
+    if (this.ultimaVozIA === 0 || now - this.ultimaVozIA > 300) {
+      this.inicioVozIA = now;
+    }
+    this.ultimaVozIA = now;
+  }
+
+  /** La IA sigue "hablando" hasta aiWindowMs después de su último audio. */
+  iaHablando(now: number = Date.now()): boolean {
+    return this.ultimaVozIA > 0 && now - this.ultimaVozIA <= this.aiWindowMs;
+  }
+
+  /** Inmunidad anti-eco: solo los primeros aiWindowMs de cada intervención. */
+  private enVentanaAntiEco(now: number): boolean {
+    return this.inicioVozIA > 0 && now - this.inicioVozIA <= this.aiWindowMs;
+  }
+
+  /** true = el speech-start debe ignorarse (eco inicial o sordera post-interrupción). */
+  debeIgnorarSpeechStart(now: number = Date.now()): boolean {
+    if (this.ultimaInterrupcion > 0 && now - this.ultimaInterrupcion < this.ignoreMs) {
+      return true;
+    }
+    return this.enVentanaAntiEco(now);
+  }
+
+  registrarInterrupcion() {
+    this.ultimaInterrupcion = Date.now();
+  }
+}
 
 export interface DetectorVoz {
   tieneVoz(pcm16Buffer: Buffer): boolean;
@@ -169,4 +275,32 @@ export function tieneVozPorEnergia(pcm16BitBuffer: Buffer, umbralDbfs: number = 
     logger.debug({ dbfs: dbfs.toFixed(1) }, "Voz detectada por energía");
   }
   return hayVoz;
+}
+
+/**
+ * Crea una instancia de Silero VAD (ONNX ML) configurada dinámicamente
+ * y envuelta en nuestro VADAccumulator para soportar streaming asimétrico.
+ */
+export async function crearSileroVAD(
+  onSpeechStart: () => void,
+  onSpeechEnd: () => void,
+  sampleRate: number = 16000
+): Promise<VADAccumulator | null> {
+  try {
+    const config = await vadConfigManager.getConfig();
+
+    const vad = await RealTimeVAD.new({
+      positiveSpeechThreshold: config.vad_base_threshold || 0.65,
+      redemptionFrames: config.vad_min_frames ? config.vad_min_frames * 5 : 20, // Approx ~100-600ms
+      sampleRate, // la librería re-muestrea a 16k internamente
+      onSpeechStart,
+      onSpeechEnd
+    });
+    
+    vad.start();
+    return new VADAccumulator(vad);
+  } catch (e) {
+    logger.error({ error: (e as Error).message }, "Error cargando Silero VAD, fallback...");
+    return null;
+  }
 }

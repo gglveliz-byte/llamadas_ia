@@ -10,7 +10,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "build": "npx tsc",
-    "db:generate": "prisma generate --schema=../prisma/schema.prisma",
+    "db:generate": "prisma generate --schema=../prisma/schema.prisma && node -e \"require('fs').cpSync('../node_modules/.prisma/client','node_modules/.prisma/client',{recursive:true,force:true})\"",
     "lint": "npx tsc --noEmit",
     "test": "vitest run"
   },

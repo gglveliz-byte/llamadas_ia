@@ -157,6 +157,14 @@ ${safeRecursos}
 - Antes de agendar, SIEMPRE consulta disponibilidad con la herramienta.
 - Confirma los datos con el cliente antes de guardar.
 - Si el cliente quiere cancelar, usa la herramienta de cancelación.
+- NUNCA inventes información. Si un dato no está en el CONTEXTO DEL NEGOCIO o no lo sabes, dilo con honestidad y ofrece tomar un mensaje. Si no entiendes al cliente, pide amablemente que lo repita en lugar de suponer.
+- Cuando vayas a usar una herramienta, ANTES di una frase breve y natural para cubrir la espera, variando entre sinónimos: "Un momento, por favor", "Permíteme un segundo", "Dame un instante para verificarlo". Después retoma la conversación con el resultado.
+- Responde las consultas normales (servicios, precios, horarios, políticas) directamente desde el CONTEXTO DEL NEGOCIO, sin usar herramientas. Úsalas SOLO para consultar disponibilidad, agendar o cancelar citas.
+- Cuando recibas el aviso de que la llamada se conectó, saluda PRIMERO tú, antes de esperar a que el cliente hable.${
+    settings.mensajeSaludo
+      ? ` Di exactamente este saludo (con tu voz y tono naturales): "${sanitizePrompt(settings.mensajeSaludo, 500)}"`
+      : " Preséntate con el nombre del negocio, saluda amablemente y pregunta cómo puedes ayudar."
+  }
 - ID de llamada actual: ${callSid}
     `.trim();
 }
@@ -415,9 +423,11 @@ export async function procesarMensajesGemini(
   callSid: string,
   streamSid: string,
   enviarATelnyx: (streamSid: string, audioBase64: string) => void,
-  onTranscripcion?: (texto: string, rol: string, ts: number) => void
+  onTranscripcion?: (texto: string, rol: string, ts: number) => void,
+  mensajeInicial?: string
 ): Promise<void> {
   const inicioTurno = Date.now();
+  let saludoEnviado = false;
 
   session.on("message", async (data) => {
     try {
@@ -426,6 +436,23 @@ export async function procesarMensajesGemini(
         msg = JSON.parse(data.toString("utf-8"));
       } else if (typeof data === "string") {
         msg = JSON.parse(data);
+      }
+
+      // Al quedar lista la sesión, disparar el primer turno para que la IA
+      // salude sin esperar a que el cliente hable.
+      if (msg.setupComplete && mensajeInicial && !saludoEnviado) {
+        saludoEnviado = true;
+        if (session.readyState === WS.OPEN) {
+          session.send(
+            JSON.stringify({
+              clientContent: {
+                turns: [{ role: "user", parts: [{ text: mensajeInicial }] }],
+                turnComplete: true,
+              },
+            })
+          );
+          logger.info({ callSid }, "Saludo inicial solicitado a Gemini");
+        }
       }
 
       if (msg.serverContent && msg.serverContent.modelTurn && msg.serverContent.modelTurn.parts) {

@@ -17,7 +17,8 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const countryCode = searchParams.get("countryCode");
   const areaCode = searchParams.get("areaCode");
-  const limit = searchParams.get("limit") || "10";
+  const limit = searchParams.get("limit") || "20";
+  const page = searchParams.get("page") || "1";
 
   if (!countryCode) {
     return NextResponse.json({ error: "countryCode es requerido" }, { status: 400 });
@@ -27,7 +28,7 @@ export async function GET(req: NextRequest) {
     const expressUrl = process.env.DOMINIO_EXPRESS || "http://localhost:3001";
     const internalApiKey = process.env.INTERNAL_API_KEY || "dev-internal-key";
     
-    const query = new URLSearchParams({ countryCode, limit });
+    const query = new URLSearchParams({ countryCode, limit, page });
     if (areaCode) query.append("areaCode", areaCode);
 
     const response = await fetch(`${expressUrl}/internal/telnyx/available-numbers?${query.toString()}`, {

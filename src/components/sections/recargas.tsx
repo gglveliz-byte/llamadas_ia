@@ -199,6 +199,31 @@ export function RecargasSection() {
         </Card>
       </div>
 
+      {/* Cómo funciona la facturación */}
+      <Card className="panel-wa bg-blue-500/5 border-blue-500/20">
+        <CardContent className="p-4">
+          <p className="font-semibold text-sm text-blue-700 dark:text-blue-300 mb-2">
+            Cómo funciona tu facturación
+          </p>
+          <ul className="text-xs text-muted-foreground space-y-1.5 list-disc pl-4">
+            <li>
+              <strong className="text-foreground">Recargas:</strong> pago único procesado por Whop.
+              No crea suscripciones ni renovaciones automáticas: tú decides cuándo recargar.
+            </li>
+            <li>
+              <strong className="text-foreground">Llamadas:</strong> el consumo se descuenta de tu
+              saldo por minuto (o segundo, según la plataforma).
+            </li>
+            <li>
+              <strong className="text-foreground">Números telefónicos:</strong> la activación se
+              descuenta al comprar y la renta se descuenta de tu saldo cada 30 días. Si no hay
+              saldo, el número se suspende y, tras unos días de gracia, se libera: en ese caso
+              deberás comprar un número nuevo.
+            </li>
+          </ul>
+        </CardContent>
+      </Card>
+
       {/* Paquetes de recarga */}
       <Card className="panel-wa">
         <CardHeader>
@@ -326,6 +351,7 @@ export function RecargasSection() {
             </DialogTitle>
             <DialogDescription>
               Serás redirigido a un portal de pago seguro para completar la compra.
+              Pago único: no crea suscripciones ni renovaciones automáticas.
             </DialogDescription>
           </DialogHeader>
           {paqueteSel && (

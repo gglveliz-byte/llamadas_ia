@@ -129,6 +129,109 @@ export async function debitarLlamada(
 }
 
 /**
+ * True si tras cobrar `monto` el saldo quedaría por encima del límite negativo.
+ */
+export async function saldoPermiteCobro(userId: string, monto: number): Promise<boolean> {
+  const wallet = await db.wallet.findUnique({ where: { userId } });
+  if (!wallet) return false;
+  const limite = parseFloat(await getConfig("limite_saldo_negativo"));
+  return wallet.saldo.toNumber() - monto >= limite;
+}
+
+/**
+ * Debita un concepto genérico (alta de número, renta mensual, etc.).
+ * Idempotente por refIdempotencia (misma ref no se cobra dos veces).
+ */
+export async function debitarConcepto(
+  userId: string,
+  monto: number,
+  descripcion: string,
+  refIdempotencia: string
+): Promise<{ saldoNuevo: number }> {
+  if (monto <= 0) {
+    const wallet = await db.wallet.findUnique({ where: { userId } });
+    return { saldoNuevo: wallet?.saldo.toNumber() ?? 0 };
+  }
+
+  const resultado = await db.$transaction(async (tx) => {
+    const yaDebitado = await tx.walletTransaction.findFirst({
+      where: { callSid: refIdempotencia, tipo: "debito" },
+    });
+    if (yaDebitado) {
+      logger.warn({ refIdempotencia }, "Concepto ya debitado - omitiendo cobro duplicado");
+      return { saldoNuevo: yaDebitado.saldoNuevo.toNumber() };
+    }
+
+    const wallet = await tx.wallet.findUnique({ where: { userId } });
+    if (!wallet) throw new Error("Wallet no encontrada");
+
+    const saldoAnterior = wallet.saldo.toNumber();
+    const saldoNuevo = saldoAnterior - monto;
+
+    await tx.wallet.update({ where: { userId }, data: { saldo: saldoNuevo } });
+    await tx.walletTransaction.create({
+      data: {
+        userId,
+        tipo: "debito",
+        monto: -monto,
+        saldoAnterior,
+        saldoNuevo,
+        callSid: refIdempotencia,
+        descripcion,
+      },
+    });
+    return { saldoNuevo };
+  });
+
+  try {
+    await verificarAlertasSaldo(userId, resultado.saldoNuevo, resultado.saldoNuevo + monto);
+  } catch (alertError) {
+    logger.error({ error: (alertError as Error).message, userId }, "Error en alerta de saldo");
+  }
+
+  logger.info({ userId, monto, descripcion, refIdempotencia }, "Concepto debitado");
+  return resultado;
+}
+
+/**
+ * Reversa un cobro de concepto (p.ej. la compra en Telnyx falló tras debitar).
+ * Idempotente por refIdempotencia.
+ */
+export async function reversarConcepto(
+  userId: string,
+  monto: number,
+  descripcion: string,
+  refIdempotencia: string
+): Promise<void> {
+  if (monto <= 0) return;
+  await db.$transaction(async (tx) => {
+    const yaReversado = await tx.walletTransaction.findFirst({
+      where: { callSid: refIdempotencia, tipo: "ajuste_admin" },
+    });
+    if (yaReversado) return;
+
+    const wallet = await tx.wallet.findUnique({ where: { userId } });
+    if (!wallet) return;
+    const saldoAnterior = wallet.saldo.toNumber();
+    const saldoNuevo = saldoAnterior + monto;
+
+    await tx.wallet.update({ where: { userId }, data: { saldo: saldoNuevo } });
+    await tx.walletTransaction.create({
+      data: {
+        userId,
+        tipo: "ajuste_admin",
+        monto,
+        saldoAnterior,
+        saldoNuevo,
+        callSid: refIdempotencia,
+        descripcion,
+      },
+    });
+  });
+  logger.info({ userId, monto, refIdempotencia }, "Concepto reversado");
+}
+
+/**
  * Acredita saldo tras recarga exitosa de Whop.
  * Cumple spec 5.2. Idempotente por whopPaymentId: un webhook duplicado no acredita doble.
  */

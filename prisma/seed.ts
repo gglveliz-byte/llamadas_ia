@@ -23,6 +23,10 @@ async function main() {
     { clave: "vad_noise_boost", valor: "0.15", descripcion: "Aumento de sensibilidad en entorno ruidoso (umbral adaptativo)" },
     { clave: "vad_ignore_audio_until", valor: "500", descripcion: "Milisegundos de sordera post-interrupción (evita audio fantasma)" },
     { clave: "vad_ai_speaking_window", valor: "250", descripcion: "Milisegundos de inmunidad anti-eco tras hablar la IA" },
+    { clave: "dias_gracia_liberacion", valor: "5", descripcion: "Días de gracia tras suspender un número por renta impagada antes de liberarlo en Telnyx" },
+    { clave: "precio_alta_numero", valor: "1.00", descripcion: "Precio por defecto de activación de número cuando Telnyx no reporta costo (USD)" },
+    { clave: "precio_mes_numero", valor: "1.00", descripcion: "Precio por defecto de renta mensual de número cuando Telnyx no reporta costo (USD)" },
+    { clave: "margen_numero_pct", valor: "50", descripcion: "Margen % sobre el costo real del número (activación y renta) para el precio al cliente" },
   ];
 
   for (const c of adminConfigs) {

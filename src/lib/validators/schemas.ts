@@ -62,6 +62,7 @@ export const adminAdjustBalanceSchema = z.object({
 
 export const businessSettingsSchema = z.object({
   aiLanguage: z.string().max(10).optional(),
+  mensajeSaludo: z.string().max(500).nullish(),
   bookingMode: z.enum(["hours", "nights"]).optional(),
   defaultDurationMinutes: z.number().int().positive().optional(),
   timezone: z.string().max(50).optional(),

@@ -39,6 +39,16 @@ export async function POST(req: NextRequest) {
         return new Response("OK", { status: 200 });
       }
 
+      // Idempotencia: Whop reintenta webhooks; no acreditar dos veces
+      const paymentId = (data.id as string) ?? "whop_" + Date.now();
+      const yaProcesado = await db.walletTransaction.findFirst({
+        where: { whopPaymentId: paymentId, tipo: "recarga" },
+      });
+      if (yaProcesado) {
+        logger.warn({ paymentId }, "[whop] Pago ya procesado - omitiendo doble acreditación");
+        return new Response("OK", { status: 200 });
+      }
+
       const saldoOtorgado = paquete.saldoOtorgado.toNumber();
       const montoRecarga = paquete.montoRecarga.toNumber();
 
@@ -60,12 +70,23 @@ export async function POST(req: NextRequest) {
           monto: saldoOtorgado,
           saldoAnterior: wallet?.saldo.toNumber() ?? 0,
           saldoNuevo,
-          whopPaymentId: (data.id as string) ?? "whop_" + Date.now(),
+          whopPaymentId: paymentId,
           descripcion: `Recarga Paquete ${paquete.nombre} ($${montoRecarga})`,
         },
       });
 
       logger.info({ userId, monto: saldoOtorgado, saldoNuevo, paymentId: data.id }, "[whop] Saldo acreditado");
+
+      // Reactivación inmediata de números suspendidos tras la recarga
+      const expressUrl = process.env.DOMINIO_EXPRESS || "http://localhost:3001";
+      fetch(`${expressUrl}/internal/rentas/procesar-usuario`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-internal-api-key": process.env.INTERNAL_API_KEY || "dev-internal-key",
+        },
+        body: JSON.stringify({ userId }),
+      }).catch((e) => logger.warn({ error: (e as Error).message }, "[whop] No se pudo procesar rentas tras recarga"));
     }
 
     if (evento.type === "refund.created") {

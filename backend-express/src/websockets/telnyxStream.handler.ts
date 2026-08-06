@@ -15,7 +15,7 @@ import { crearSesionGemini, procesarMensajesGemini } from "./gemini.handler";
 const MODELO = process.env.GEMINI_MODEL || "models/gemini-3.1-flash-live-preview";
 import { transcodificarTelefoníaAGemini, transcodificarGeminiATelefonía } from "../utils/audioTranscoder";
 import { hangupCall } from "../services/telnyx.service";
-import { crearDetectorVoz, type DetectorVoz } from "../services/vad.service";
+import { crearSileroVAD, VADAccumulator, BargeInGuard, vadConfigManager } from "../services/vad.service";
 import { verificarSaldo, debitarLlamada } from "../services/billing.service";
 import { incrementarLlamadasActivas, decrementarLlamadasActivas } from "../services/monitoring.service";
 import { incrementarConcurrenciaTelnyx, decrementarConcurrenciaTelnyx } from "../services/ratelimit.service";
@@ -73,9 +73,12 @@ interface SesionLlamada {
   userId: string;
   inicio: number;
   sesionGemini: Awaited<ReturnType<typeof crearSesionGemini>> | null;
-  detectorVoz: DetectorVoz | null;
+  detectorVoz: VADAccumulator | null;
+  guard: BargeInGuard | null;
+  vadBase: number;
+  vadBoost: number;
   ultimaActividadGemini: number;
-  ultimoVozDetectada: number;
+  isSpeaking: boolean;
   bargeInDetectado: boolean;
   grabacionActiva: boolean;
   finalizada: boolean;
@@ -126,8 +129,11 @@ export function registrarTelnyxStreamHandler(wss: import("ws").WebSocketServer):
       inicio: Date.now(),
       sesionGemini: null,
       detectorVoz: null,
+      guard: null,
+      vadBase: 0.62,
+      vadBoost: 0.15,
       ultimaActividadGemini: Date.now(),
-      ultimoVozDetectada: 0,
+      isSpeaking: false,
       bargeInDetectado: false,
       grabacionActiva: settings?.grabacionActiva ?? false,
       finalizada: false,
@@ -227,8 +233,12 @@ async function manejarStart(
       userId,
       callControlId,
       streamId,
-      (sid, audio) => enviarATelnyx(ws, sid, audio),
-      (texto, rol, ts) => sesion.transcripts.push({ texto, rol, ts })
+      (sid, audio) => {
+        sesion.guard?.registrarVozIA();
+        enviarATelnyx(ws, sid, audio);
+      },
+      (texto, rol, ts) => sesion.transcripts.push({ texto, rol, ts }),
+      "[SISTEMA] La llamada acaba de conectarse. Saluda ahora al cliente siguiendo tu instrucción: preséntate con el nombre del negocio, saluda amablemente y pregunta cómo puedes ayudar."
     ).catch((e) => {
       logger.error({ error: (e as Error).message, callControlId }, "Error en loop de Gemini");
     });
@@ -250,8 +260,42 @@ async function manejarStart(
     }, 9500); // Dar tiempo a que se reproduzca el mensaje (10s)
   }
 
-  // Detector de voz (WebRTC VAD) para barge-in preciso
-  sesion.detectorVoz = await crearDetectorVoz(8000, 1);
+  // Guardia anti-eco/sordera con la sensibilidad configurada en el panel admin
+  const vadCfg = await vadConfigManager.getConfig();
+  sesion.vadBase = vadCfg.vad_base_threshold || 0.62;
+  sesion.vadBoost = vadCfg.vad_noise_boost ?? 0.15;
+  sesion.guard = new BargeInGuard(
+    vadCfg.vad_ai_speaking_window ?? 250,
+    vadCfg.vad_ignore_audio_until ?? 500
+  );
+
+  // Detector de voz (Silero VAD) para barge-in preciso y filtrado de ruido.
+  // Telnyx envía μ-law 8kHz: se declara sampleRate 8000 y la librería
+  // re-muestrea a 16k internamente.
+  sesion.detectorVoz = await crearSileroVAD(
+    () => {
+      if (sesion.guard?.debeIgnorarSpeechStart()) {
+        logger.debug({ callControlId }, "🔇 Barge-in ignorado (eco inicial o sordera post-interrupción)");
+        return;
+      }
+      sesion.guard?.registrarInterrupcion();
+      sesion.isSpeaking = true;
+      if (sesion.sesionGemini?.readyState === 1) {
+        logger.info({ callControlId }, "🎤 Usuario empezó a hablar (Silero ML) -> Interrumpiendo IA (Telnyx)");
+        sesion.sesionGemini.send(JSON.stringify({ clientContent: { turns: [], turnComplete: false } }));
+        // Limpiar buffer de Telnyx (barge-in real)
+        enviarClearATelnyx(ws, sesion.streamId);
+      }
+    },
+    () => {
+      sesion.isSpeaking = false;
+      if (sesion.sesionGemini?.readyState === 1) {
+        logger.info({ callControlId }, "🛑 Usuario terminó de hablar (Silero ML) -> IA procesando respuesta (Telnyx)");
+        sesion.sesionGemini.send(JSON.stringify({ clientContent: { turns: [], turnComplete: true } }));
+      }
+    },
+    8000
+  );
 
   // Notificar al dueño
   emitirSSE(userId, "llamada_iniciada", { callSid: callControlId, from: mensaje.start.from });
@@ -278,24 +322,28 @@ async function manejarMedia(
   // Solo procesar inbound con Gemini
   if (track !== "inbound" || !sesion.sesionGemini) return;
 
-  // Detección de barge-in y Voice Activity (WebRTC VAD - ML, distingue voz de ruido)
+  // Detección de barge-in y Voice Activity (Silero VAD - ML, distingue voz de ruido)
   const mulawBuf = Buffer.from(payload, "base64");
   const pcmSamples = g711.ulawToPCM(mulawBuf);
-  const pcmBuf = Buffer.from(pcmSamples.buffer, pcmSamples.byteOffset, pcmSamples.byteLength);
   
-  if (sesion.detectorVoz?.tieneVoz(pcmBuf)) {
-    sesion.ultimoVozDetectada = Date.now();
-    const tiempoDesdeUltimaActividad = Date.now() - sesion.ultimaActividadGemini;
-    if (tiempoDesdeUltimaActividad > 200 && !sesion.bargeInDetectado) {
-      // Posible barge-in - limpiar buffer de Telnyx
-      sesion.bargeInDetectado = true;
-      enviarClearATelnyx(ws, sesion.streamId);
-      setTimeout(() => (sesion.bargeInDetectado = false), 1000);
+  if (sesion.detectorVoz) {
+    const float32 = new Float32Array(pcmSamples.length);
+    for (let i = 0; i < pcmSamples.length; i++) {
+      float32[i] = pcmSamples[i] / 32768.0;
     }
+    // Umbral adaptativo (vad_noise_boost): más estricto mientras la IA habla
+    // para que el eco/ruido no dispare barge-in falsos.
+    sesion.detectorVoz.setUmbral(
+      sesion.guard?.iaHablando()
+        ? Math.min(1, sesion.vadBase + sesion.vadBoost)
+        : sesion.vadBase
+    );
+    sesion.detectorVoz.process(float32);
   }
 
-  // Filtro VAD: Si no hubo voz en los últimos 500ms, descartar ruido de fondo
-  if (Date.now() - sesion.ultimoVozDetectada > 500) {
+  // Filtro estricto: Si Silero VAD determina que no hay voz, NO enviamos el audio a Gemini.
+  // Esto aísla a la IA completamente del ruido de fondo de la llamada.
+  if (!sesion.isSpeaking) {
     return;
   }
 

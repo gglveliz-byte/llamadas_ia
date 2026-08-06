@@ -85,7 +85,7 @@ export function AdminConfigSection() {
   // Agrupar configs por categoría
   const grupos: Record<string, ConfigItem[]> = {
     "Facturación": configs.filter((c) =>
-      ["saldo_trial", "limite_saldo_negativo", "cobro_por_segundo", "precio_minuto_default"].includes(c.clave)
+      ["saldo_trial", "limite_saldo_negativo", "cobro_por_segundo", "precio_minuto_default", "dias_gracia_liberacion", "precio_alta_numero", "precio_mes_numero", "margen_numero_pct"].includes(c.clave)
     ),
     "Mantenimiento": configs.filter((c) => c.clave === "mensaje_mantenimiento"),
     "Alertas": configs.filter((c) =>

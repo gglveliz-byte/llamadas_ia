@@ -107,6 +107,7 @@ export interface BusinessSettings {
   userId: string;
   aiLanguage: string;
   aiVoice: string;
+  mensajeSaludo: string | null;
   bookingMode: "hours" | "nights";
   defaultDurationMinutes: number;
   checkInTime: string;

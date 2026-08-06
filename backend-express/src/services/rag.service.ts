@@ -73,17 +73,17 @@ export async function obtenerContextoRAG(
   try {
     const vectorStr = `[${embedding.join(",")}]`;
     const results = (await db.$queryRawUnsafe(
-      `SELECT raw_context, 1 - (embedding <=> $1::vector) AS similitud
+      `SELECT "rawContext", 1 - (embedding <=> $1::vector) AS similitud
        FROM business_memory
-       WHERE user_id = $2 AND status = 'activo'
+       WHERE "userId" = $2 AND status = 'activo'
        ORDER BY embedding <=> $1::vector
        LIMIT 3`,
       vectorStr,
       userId
-    )) as Array<{ raw_context: string; similitud: number }>;
+    )) as Array<{ rawContext: string; similitud: number }>;
 
     if (results && results.length > 0) {
-      const contexto = results.map((r) => r.raw_context).join("\n---\n");
+      const contexto = results.map((r) => r.rawContext).join("\n---\n");
       await cacheSet(cacheKey, contexto, 60);
       return contexto;
     }
@@ -162,7 +162,7 @@ async function insertarMemoria(
   try {
     const vectorStr = `[${embedding.join(",")}]`;
     const results = (await db.$queryRawUnsafe(
-      `INSERT INTO business_memory (user_id, raw_context, embedding, status, version)
+      `INSERT INTO business_memory ("userId", "rawContext", embedding, status, version)
        VALUES ($1, $2, $3::vector, 'activo', $4)
        RETURNING id`,
       userId,
@@ -187,8 +187,8 @@ async function actualizarMemoria(
 ): Promise<void> {
   if (embedding.length > 0 && ai) {
     const vectorStr = `[${embedding.join(",")}]`;
-    await db.$executeRawUnsafe(
-      `UPDATE business_memory SET raw_context = $1, embedding = $2::vector WHERE id = $3`,
+    await db.$queryRawUnsafe(
+      `UPDATE business_memory SET "rawContext" = $1, embedding = $2::vector WHERE id = $3`,
       rawContext,
       vectorStr,
       id
@@ -212,18 +212,18 @@ export async function buscarContextoPorSimilitud(
   try {
     const vectorStr = `[${embedding.join(",")}]`;
     const results = (await db.$queryRawUnsafe(
-      `SELECT raw_context, 1 - (embedding <=> $1::vector) AS similitud, version
+      `SELECT "rawContext", 1 - (embedding <=> $1::vector) AS similitud, version
        FROM business_memory
-       WHERE user_id = $2 AND status = 'activo'
+       WHERE "userId" = $2 AND status = 'activo'
        ORDER BY embedding <=> $1::vector
        LIMIT $3`,
       vectorStr,
       userId,
       limite
-    )) as Array<{ raw_context: string; similitud: number; version: number }>;
+    )) as Array<{ rawContext: string; similitud: number; version: number }>;
 
-    return (results || []).map((r) => ({
-      rawContext: r.raw_context,
+    return results.map((r) => ({
+      rawContext: r.rawContext,
       similitud: r.similitud,
       version: r.version,
     }));

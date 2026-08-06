@@ -32,9 +32,20 @@ interface Mensaje {
   ts: number;
 }
 
+type EstadoSesion = "idle" | "iniciada" | "comienza" | "escuchando" | "procesando" | "ia_hablando";
+
+const TEXTO_ESTADO: Record<Exclude<EstadoSesion, "idle">, string> = {
+  iniciada: "Asistente personal de configuración iniciada.",
+  comienza: "Comienza a hablar ahora.",
+  escuchando: "Escuchando...",
+  procesando: "Procesando tu respuesta...",
+  ia_hablando: "IA hablando...",
+};
+
 export function SimuladorSection() {
   const { usuario } = useAppStore();
   const [grabando, setGrabando] = React.useState(false);
+  const [estadoSesion, setEstadoSesion] = React.useState<EstadoSesion>("idle");
   const [conectado, setConectado] = React.useState(false);
   const [mensajes, setMensajes] = React.useState<Mensaje[]>([]);
   const [contextoExtraido, setContextoExtraido] = React.useState("");
@@ -61,6 +72,17 @@ export function SimuladorSection() {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [mensajes]);
+
+  // Al desmontar (navegar fuera de la página) cierra el WS: sin esto la
+  // sesión vieja quedaba viva en el backend y seguía sonando ("dos bots").
+  React.useEffect(() => {
+    return () => {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
+  }, []);
 
   React.useEffect(() => {
     if (!grabando) {
@@ -124,6 +146,14 @@ export function SimuladorSection() {
       }
       source.start(nextPlayTime);
       nextPlayTime += buffer.duration;
+      setEstadoSesion("ia_hablando");
+      // Cuando termina el último chunk encolado, volvemos a "Escuchando..."
+      const finProgramado = nextPlayTime;
+      source.onended = () => {
+        if (audioContext && audioContext.state !== "closed" && audioContext.currentTime >= finProgramado - 0.05) {
+          setEstadoSesion("escuchando");
+        }
+      };
     };
 
     ws.onmessage = async (e) => {
@@ -139,8 +169,22 @@ export function SimuladorSection() {
             audioContext.close();
             audioContext = null;
           }
+          nextPlayTime = 0;
+          setEstadoSesion("escuchando");
+        } else if (msg.tipo === "estado") {
+          if (msg.estado === "escuchando" || msg.estado === "procesando") {
+            setEstadoSesion(msg.estado);
+          }
+        } else if (msg.tipo === "contexto") {
+          if (typeof msg.contexto === "string") {
+            setContextoExtraido(msg.contexto);
+          }
         } else if (msg.tipo === "listo") {
           setGrabando(true);
+          setEstadoSesion("iniciada");
+          setTimeout(() => {
+            setEstadoSesion((prev) => (prev === "iniciada" ? "comienza" : prev));
+          }, 1800);
           toast.info("Micrófono activo. El asistente te guiará en la configuración.");
         }
       } catch {
@@ -151,6 +195,7 @@ export function SimuladorSection() {
     ws.onclose = () => {
       setConectado(false);
       setGrabando(false);
+      setEstadoSesion("idle");
       if (audioContext) {
         audioContext.close();
         audioContext = null;
@@ -166,8 +211,13 @@ export function SimuladorSection() {
   };
 
   const iniciarGrabacion = () => {
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
     setMensajes([]);
     setTimer(0);
+    setEstadoSesion("idle");
     // No grabamos inmediatamente, esperamos el evento "listo" del servidor
     setConectado(true);
     const ws = conectarWS();
@@ -310,15 +360,25 @@ export function SimuladorSection() {
                   </div>
                 </div>
               ))}
-              {grabando && (
+              {grabando && estadoSesion !== "idle" && (
                 <div className="flex justify-start">
-                  <div className="bg-muted rounded-lg px-3 py-2 flex items-center gap-1">
-                    <span className="text-xs text-muted-foreground">IA escribiendo</span>
-                    <div className="flex gap-1">
-                      <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "0ms" }} />
-                      <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "150ms" }} />
-                      <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "300ms" }} />
-                    </div>
+                  <div className="bg-muted rounded-lg px-3 py-2 flex items-center gap-2">
+                    <span
+                      className={cn(
+                        "text-xs text-muted-foreground",
+                        (estadoSesion === "iniciada" || estadoSesion === "comienza" || estadoSesion === "ia_hablando") &&
+                          "animate-pulse"
+                      )}
+                    >
+                      {TEXTO_ESTADO[estadoSesion]}
+                    </span>
+                    {(estadoSesion === "escuchando" || estadoSesion === "procesando") && (
+                      <div className="flex gap-1">
+                        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "0ms" }} />
+                        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "150ms" }} />
+                        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "300ms" }} />
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

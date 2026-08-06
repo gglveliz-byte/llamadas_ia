@@ -24,6 +24,7 @@ import { registrarSimuladorHandler } from "./websockets/simulador.handler";
 import { parse } from "url";
 import { configurarSSEHeaders, registrarClienteSSE, removerClienteSSE, emitirSSE } from "./sse/events.emitter";
 import { iniciarMonitoreo } from "./services/monitoring.service";
+import { procesarRentasMensuales } from "./services/rentas.service";
 import { rateLimiter } from "./middleware/rateLimiter";
 import { logger } from "./utils/logger";
 import { verificarFfmpegDisponible } from "./utils/audioTranscoder";
@@ -203,6 +204,16 @@ server.listen(PORT, () => {
 
   // Iniciar monitoreo
   iniciarMonitoreo();
+
+  // Rentas mensuales de números: al arrancar y cada 6 horas
+  procesarRentasMensuales().catch((e) =>
+    logger.error({ error: (e as Error).message }, "Error procesando rentas mensuales")
+  );
+  setInterval(() => {
+    procesarRentasMensuales().catch((e) =>
+      logger.error({ error: (e as Error).message }, "Error procesando rentas mensuales")
+    );
+  }, 6 * 60 * 60 * 1000);
 
   // Verificar dependencias de runtime
   const ffmpegCheck = verificarFfmpegDisponible();

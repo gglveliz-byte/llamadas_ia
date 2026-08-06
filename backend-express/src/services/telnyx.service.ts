@@ -191,22 +191,50 @@ export async function createApiKeyForAccount(accountId: string, name: string): P
 export async function searchAvailableNumbers(
   countryCode: string,
   areaCode?: string,
-  limit = 10
-): Promise<TelnyxPhoneNumber[]> {
+  limit = 20,
+  page = 1
+): Promise<{ numbers: TelnyxPhoneNumber[]; total: number | null }> {
   const params = new URLSearchParams({
     "filter[country_code]": countryCode,
     "filter[features][]": "voice",
     "page[size]": String(limit),
+    "page[number]": String(page),
   });
   if (areaCode) {
     params.append("filter[national_destination_code]", areaCode);
   }
 
-  const data = await telnyxFetch<{ data: TelnyxPhoneNumber[] }>(
-    `/available_phone_numbers?${params.toString()}`
-  );
+  const data = await telnyxFetch<{
+    data: TelnyxPhoneNumber[];
+    meta?: { total_results?: number; total_pages?: number };
+  }>(`/available_phone_numbers?${params.toString()}`);
 
-  return data.data;
+  return {
+    numbers: data.data ?? [],
+    total: data.meta?.total_results ?? null,
+  };
+}
+
+/**
+ * Busca un número disponible exacto para obtener su costo confiable
+ * (filter[phone_number]). Retorna null si ya no está disponible.
+ */
+export async function getAvailableNumberByPhone(
+  phoneNumber: string
+): Promise<TelnyxPhoneNumber | null> {
+  try {
+    const params = new URLSearchParams({
+      "filter[phone_number][]": phoneNumber,
+      "page[size]": "1",
+    });
+    const data = await telnyxFetch<{ data: TelnyxPhoneNumber[] }>(
+      `/available_phone_numbers?${params.toString()}`
+    );
+    return data.data?.[0] ?? null;
+  } catch (e) {
+    logger.warn({ error: (e as Error).message, phoneNumber }, "No se pudo consultar costo del número");
+    return null;
+  }
 }
 
 /**
@@ -238,6 +266,18 @@ export async function purchasePhoneNumber(
 
   logger.info({ phoneNumber, childAccountId }, "Número comprado en Telnyx");
   return data.data;
+}
+
+/**
+ * Libera (elimina) un número en Telnyx. Desde ese momento Telnyx
+ * deja de cobrar la renta mensual del número.
+ * DELETE /v2/phone_numbers/{id}
+ */
+export async function releasePhoneNumber(telnyxPhoneSid: string): Promise<void> {
+  await telnyxFetch(`/phone_numbers/${telnyxPhoneSid}`, {
+    method: "DELETE",
+  });
+  logger.info({ telnyxPhoneSid }, "Número liberado en Telnyx");
 }
 
 /**
@@ -511,6 +551,14 @@ interface TelnyxPhoneNumber {
   national_format: string;
   status: string;
   connection_id?: string;
+  locality?: string;
+  region?: string;
+  area_code?: string;
+  cost_information?: {
+    upfront_cost?: number;
+    monthly_cost?: number;
+    currency?: string;
+  };
 }
 
 interface TelnyxCallControl {

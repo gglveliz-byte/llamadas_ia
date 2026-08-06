@@ -41,6 +41,7 @@ model BusinessSettings {
   userId                 String   @id @db.Uuid
   aiLanguage             String   @default("es")
   aiVoice                String   @default("Puck")
+  mensajeSaludo          String?
   bookingMode            String   @default("hours")
   defaultDurationMinutes Int      @default(30)
   checkInTime            String   @default("15:00")
@@ -128,15 +129,21 @@ model BusinessMemory {
 }
 
 model PhoneNumber {
-  id             Int           @id @default(autoincrement())
-  userId         String        @db.Uuid
-  phoneNumber    String        @unique
-  countryCode    String        @default("+1")
-  isActive       Boolean       @default(true)
-  purchasedAt    DateTime      @default(now())
-  telnyxPhoneSid String?
-  appointments   Appointment[]
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                Int           @id @default(autoincrement())
+  userId            String        @db.Uuid
+  phoneNumber       String        @unique
+  countryCode       String        @default("+1")
+  isActive          Boolean       @default(true)
+  purchasedAt       DateTime      @default(now())
+  telnyxPhoneSid    String?
+  upfrontCost       Decimal?      @db.Decimal(10, 4)
+  monthlyCost       Decimal?      @db.Decimal(10, 4)
+  currency          String        @default("USD")
+  lastMonthlyChargeAt DateTime?
+  suspensionAt      DateTime?
+  releasedAt        DateTime?
+  appointments      Appointment[]
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("phone_numbers")

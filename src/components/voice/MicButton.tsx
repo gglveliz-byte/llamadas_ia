@@ -19,6 +19,11 @@ const CHUNK_INTERVAL_MS = 100;
 
 export function MicButton({ onAudioChunk, onStart, onStop, disabled, className, autoStart }: MicButtonProps) {
   const [estado, setEstado] = React.useState<EstadoGrabacion>("idle");
+  const estadoRef = React.useRef<EstadoGrabacion>("idle");
+  const cambiarEstado = (nuevo: EstadoGrabacion) => {
+    estadoRef.current = nuevo;
+    setEstado(nuevo);
+  };
   const [error, setError] = React.useState("");
   const streamRef = React.useRef<MediaStream | null>(null);
   const audioCtxRef = React.useRef<AudioContext | null>(null);
@@ -34,7 +39,7 @@ export function MicButton({ onAudioChunk, onStart, onStop, disabled, className, 
       return;
     }
 
-    setEstado("solicitando");
+    cambiarEstado("solicitando");
     setError("");
 
     try {
@@ -75,19 +80,21 @@ export function MicButton({ onAudioChunk, onStart, onStop, disabled, className, 
         onAudioChunk(base64);
       }, CHUNK_INTERVAL_MS);
 
-      setEstado("grabando");
+      cambiarEstado("grabando");
       onStart();
     } catch (e) {
       const mensaje = (e as Error).name === "NotAllowedError"
         ? "Permiso de micrófono denegado"
         : (e as Error).message;
       setError(mensaje);
-      setEstado("error");
+      cambiarEstado("error");
     }
   };
 
-  const detenerGrabacion = () => {
-    setEstado("idle");
+  // Detiene SOLO la captura de audio (sin avisar al padre). Seguro llamarlo
+  // desde el cleanup de unmount: usa refs y no depende del estado renderizado.
+  const detenerMic = () => {
+    cambiarEstado("idle");
 
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
@@ -115,6 +122,10 @@ export function MicButton({ onAudioChunk, onStart, onStop, disabled, className, 
     }
 
     chunksRef.current = [];
+  };
+
+  const detenerGrabacion = () => {
+    detenerMic();
     onStop();
   };
 
@@ -125,7 +136,9 @@ export function MicButton({ onAudioChunk, onStart, onStop, disabled, className, 
       toggleGrabacion();
     }
     return () => {
-      if (estado === "grabando") detenerGrabacion();
+      // estadoRef evita la stale closure: el cleanup de [] siempre ve el
+      // estado actual y detiene la captura al desmontar (sin re-disparar onStop).
+      if (estadoRef.current === "grabando") detenerMic();
     };
   }, []);
 

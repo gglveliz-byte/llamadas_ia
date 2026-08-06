@@ -157,11 +157,7 @@ export async function debitarConcepto(
     const yaDebitado = await tx.walletTransaction.findFirst({
       where: { callSid: refIdempotencia, tipo: "debito" },
     });
-    const yaReversado = await tx.walletTransaction.findFirst({
-      where: { callSid: refIdempotencia, tipo: "ajuste_admin" },
-    });
-    // Solo se omite si hay débito vigente; tras una reversa, re-cobrar es legítimo
-    if (yaDebitado && !yaReversado) {
+    if (yaDebitado) {
       logger.warn({ refIdempotencia }, "Concepto ya debitado - omitiendo cobro duplicado");
       return { saldoNuevo: yaDebitado.saldoNuevo.toNumber() };
     }

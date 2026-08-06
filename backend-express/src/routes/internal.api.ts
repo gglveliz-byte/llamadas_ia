@@ -280,8 +280,14 @@ internalRouter.post("/telnyx/purchase-number", async (req, res) => {
       });
     }
 
-    // Cobrar alta primero (idempotente por número+día); se reversa si Telnyx falla
-    const refAlta = `alta_num_${phoneNumber}_${new Date().toISOString().slice(0, 10)}`;
+    // Cobrar alta primero (idempotente por número+día); se reversa si Telnyx falla.
+    // Tras una reversa el re-cobro usa ref nuevo: la BD tiene @@unique([tipo, callSid])
+    // y reutilizar el mismo ref chocaría con el índice.
+    const baseRef = `alta_num_${phoneNumber}_${new Date().toISOString().slice(0, 10)}`;
+    const reversasPrevias = await db.walletTransaction.count({
+      where: { tipo: "ajuste_admin", callSid: { startsWith: baseRef } },
+    });
+    const refAlta = reversasPrevias > 0 ? `${baseRef}_r${reversasPrevias}` : baseRef;
     await debitarConcepto(userId, upfront, `Alta número ${phoneNumber}`, refAlta);
 
     try {

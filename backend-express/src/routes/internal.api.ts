@@ -201,6 +201,17 @@ function precioVenta(base: number, def: number, factor: number): number {
 }
 
 /**
+ * Prorrateo de la primera renta: Telnyx cobra el primer ciclo proporcional a
+ * los días restantes del mes (ej. 26/31). Lo replicamos con nuestro precio de
+ * venta para no perder margen desde el día 1.
+ */
+function prorrateoPrimerMes(mensual: number, ahora: Date = new Date()): number {
+  const diasMes = new Date(ahora.getFullYear(), ahora.getMonth() + 1, 0).getDate();
+  const diasRestantes = diasMes - ahora.getDate() + 1;
+  return Math.round(mensual * (diasRestantes / diasMes) * 100) / 100;
+}
+
+/**
  * POST /internal/telnyx/purchase-number
  * Compra un número Telnyx específico para un usuario.
  * Body: { userId, phoneNumber }
@@ -289,10 +300,14 @@ internalRouter.post("/telnyx/purchase-number", async (req, res) => {
       : Math.max(isFinite(ventaMes) && ventaMes > 0 ? ventaMes : pisoMes, pisoMes);
     const currency = costoReal?.currency ?? parsed.data.currency ?? "USD";
 
-    // Verificar saldo antes de cobrar el alta
-    if (!(await saldoPermiteCobro(userId, upfront))) {
+    // Día 1: activación + primera renta prorrateada (como cobra Telnyx).
+    const primeraRenta = prorrateoPrimerMes(monthly);
+    const totalHoy = Math.round((upfront + primeraRenta) * 100) / 100;
+
+    // Verificar saldo antes de cobrar
+    if (!(await saldoPermiteCobro(userId, totalHoy))) {
       return res.status(402).json({
-        error: `Saldo insuficiente para el pago de alta ($${upfront.toFixed(2)} ${currency}). Recarga saldo e inténtalo de nuevo.`,
+        error: `Saldo insuficiente: hoy se cobran $${totalHoy.toFixed(2)} ${currency} (activación $${upfront.toFixed(2)} + 1ª renta prorrateada $${primeraRenta.toFixed(2)}). Recarga saldo e inténtalo de nuevo.`,
       });
     }
 
@@ -304,7 +319,12 @@ internalRouter.post("/telnyx/purchase-number", async (req, res) => {
       where: { tipo: "ajuste_admin", callSid: { startsWith: baseRef } },
     });
     const refAlta = reversasPrevias > 0 ? `${baseRef}_r${reversasPrevias}` : baseRef;
-    await debitarConcepto(userId, upfront, `Alta número ${phoneNumber}`, refAlta);
+    await debitarConcepto(
+      userId,
+      totalHoy,
+      `Alta ${phoneNumber} ($${upfront.toFixed(2)}) + 1ª renta prorrateada ($${primeraRenta.toFixed(2)})`,
+      refAlta
+    );
 
     try {
       // Comprar número específico: Si es flujo root, childAccountId será null/undefined.
@@ -384,10 +404,12 @@ internalRouter.post("/telnyx/purchase-number", async (req, res) => {
         telnyxId: comprado.id,
         upfrontCost: upfront,
         monthlyCost: monthly,
+        primeraRenta,
+        totalHoy,
         currency,
       });
     } catch (e) {
-      await reversarConcepto(userId, upfront, `Reversa alta número ${phoneNumber}`, refAlta);
+      await reversarConcepto(userId, totalHoy, `Reversa alta número ${phoneNumber}`, refAlta);
       logger.error({ error: (e as Error).message }, "Error comprando número Telnyx");
       res.status(500).json({ error: "Error comprando número: " + (e as Error).message });
     }

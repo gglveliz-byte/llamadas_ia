@@ -758,6 +758,21 @@ interface NumeroDisponible {
 const costoAlta = (n: NumeroDisponible) =>
   parseFloat(String(n.cost_information?.upfront_cost ?? "")) || 0;
 
+const costoMes = (n: NumeroDisponible) =>
+  parseFloat(String(n.cost_information?.monthly_cost ?? "")) || 0;
+
+// Misma fórmula que el backend: primera renta proporcional a los días
+// restantes del mes (así cobra Telnyx; no perdemos margen desde el día 1).
+const prorrateoPrimerMes = (mensual: number) => {
+  const ahora = new Date();
+  const diasMes = new Date(ahora.getFullYear(), ahora.getMonth() + 1, 0).getDate();
+  const diasRestantes = diasMes - ahora.getDate() + 1;
+  return Math.round(mensual * (diasRestantes / diasMes) * 100) / 100;
+};
+
+const totalHoyDe = (n: NumeroDisponible) =>
+  Math.round((costoAlta(n) + prorrateoPrimerMes(costoMes(n))) * 100) / 100;
+
 // Telnyx puede reportar costos como string ("1.00000"): siempre normalizar
 const fmtMoney = (v?: number | string | null) => {
   const n = typeof v === "string" ? parseFloat(v) : v;
@@ -893,8 +908,8 @@ function SearchNumbersModal({
             ¿Cómo se paga un número?
           </p>
           <p>
-            • <strong className="text-foreground">Activación</strong> (pago único): se descuenta
-            una sola vez al comprar.
+            • <strong className="text-foreground">Al comprar</strong>: activación (pago único) +
+            primera renta prorrateada a los días restantes del mes.
           </p>
           <p>
             • <strong className="text-foreground">Renta mensual</strong> (suscripción): se
@@ -920,11 +935,25 @@ function SearchNumbersModal({
               </div>
               <div className="rounded-md bg-muted p-3 space-y-1 text-xs">
                 <div className="flex items-baseline justify-between gap-2">
-                  <span className="text-muted-foreground">
-                    Pagas hoy · activación (pago único)
-                  </span>
+                  <span className="text-muted-foreground">Activación (pago único)</span>
                   <span className="font-semibold text-sm text-foreground">
                     ${fmtMoney(confirmando.cost_information?.upfront_cost)}{" "}
+                    {confirmando.cost_information?.currency || "USD"}
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-muted-foreground">
+                    1ª renta prorrateada (días restantes del mes)
+                  </span>
+                  <span className="font-semibold text-sm text-foreground">
+                    ${fmtMoney(prorrateoPrimerMes(costoMes(confirmando)))}{" "}
+                    {confirmando.cost_information?.currency || "USD"}
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between gap-2 border-t border-border pt-1">
+                  <span className="text-muted-foreground font-medium">Total hoy</span>
+                  <span className="font-bold text-sm text-foreground">
+                    ${fmtMoney(totalHoyDe(confirmando))}{" "}
                     {confirmando.cost_information?.currency || "USD"}
                   </span>
                 </div>
@@ -942,10 +971,10 @@ function SearchNumbersModal({
                 número se suspende y, tras unos días de gracia sin pagar, se libera y deberás
                 comprar uno nuevo.
               </p>
-              {saldo !== null && saldo < costoAlta(confirmando) && (
+              {saldo !== null && saldo < totalHoyDe(confirmando) && (
                 <div className="rounded-md bg-amber-500/10 border border-amber-500/30 p-2 text-xs text-amber-700 dark:text-amber-400 flex items-center gap-2">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                  Saldo insuficiente para el pago de alta. Recarga en la sección Recargas.
+                  Saldo insuficiente para el total de hoy. Recarga en la sección Recargas.
                 </div>
               )}
             </div>
@@ -955,7 +984,7 @@ function SearchNumbersModal({
               </Button>
               <Button
                 onClick={confirmarCompra}
-                disabled={comprando || (saldo !== null && saldo < costoAlta(confirmando))}
+                disabled={comprando || (saldo !== null && saldo < totalHoyDe(confirmando))}
               >
                 {comprando ? "Comprando..." : "Confirmar compra"}
               </Button>
@@ -1041,8 +1070,7 @@ function SearchNumbersModal({
               <ScrollArea className="h-[50vh] rounded-lg border p-3">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {results.map((n) => {
-                    const upfront = costoAlta(n);
-                    const insuficiente = saldo !== null && saldo < upfront;
+                    const insuficiente = saldo !== null && saldo < totalHoyDe(n);
                     return (
                       <div
                         key={n.phone_number}
@@ -1068,9 +1096,11 @@ function SearchNumbersModal({
                         </div>
                         <div className="rounded-md bg-muted p-3 space-y-1 text-xs">
                           <div className="flex items-baseline justify-between gap-2">
-                            <span className="text-muted-foreground">Pagas hoy (activación)</span>
+                            <span className="text-muted-foreground">
+                              Hoy: activación + 1ª renta prorrateada
+                            </span>
                             <span className="font-semibold text-sm text-foreground">
-                              ${fmtMoney(n.cost_information?.upfront_cost)}
+                              ${fmtMoney(totalHoyDe(n))}
                             </span>
                           </div>
                           <div className="flex items-baseline justify-between gap-2">
@@ -1080,8 +1110,8 @@ function SearchNumbersModal({
                             </span>
                           </div>
                           <p className="text-[10px] text-muted-foreground pt-1">
-                            El pago único no es de por vida: es la activación. La renta mantiene el
-                            número activo.
+                            La primera renta se prorratea a los días restantes del mes (como cobra
+                            el proveedor). Después, renta fija cada 30 días.
                           </p>
                         </div>
                         {insuficiente && (

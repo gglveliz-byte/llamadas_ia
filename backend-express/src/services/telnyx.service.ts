@@ -341,21 +341,37 @@ export async function createVoiceConnection(
 
 /**
  * Asigna un número a una conexión.
- * POST /v2/phone_numbers/{id}/actions/assign_connection
+ * En Telnyx v2 la asignación se hace con PATCH /v2/phone_numbers/{id}
+ * pasando connection_id (no existe un endpoint "actions/assign_connection").
  */
 export async function assignNumberToConnection(
   phoneNumberId: string,
   connectionId: string
 ): Promise<void> {
-  await telnyxFetch(
-    `/phone_numbers/${phoneNumberId}/actions/assign_connection`,
-    {
-      method: "POST",
-      body: JSON.stringify({ connection_id: connectionId }),
-    }
-  );
+  await telnyxFetch(`/phone_numbers/${phoneNumberId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ connection_id: connectionId }),
+  });
 
   logger.info({ phoneNumberId, connectionId }, "Número asignado a conexión");
+}
+
+/**
+ * Busca un número ya comprado en la cuenta (para reintentos tras fallo).
+ * GET /v2/phone_numbers?filter[phone_number][]=...
+ */
+export async function getOwnedNumberByPhone(
+  phoneNumber: string
+): Promise<TelnyxPhoneNumber | null> {
+  try {
+    const data = await telnyxFetch<{ data: TelnyxPhoneNumber[] }>(
+      `/phone_numbers?filter[phone_number][]=${encodeURIComponent(phoneNumber)}`
+    );
+    return data.data?.[0] ?? null;
+  } catch (e) {
+    logger.warn({ error: (e as Error).message, phoneNumber }, "No se pudo consultar número propio");
+    return null;
+  }
 }
 
 /**

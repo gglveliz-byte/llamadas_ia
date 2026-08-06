@@ -17,7 +17,8 @@ import {
   createVoiceConnection,
   assignNumberToConnection,
   configureNumberWebhooks,
-  getAvailableNumberByPhone
+  getAvailableNumberByPhone,
+  getOwnedNumberByPhone
 } from "../services/telnyx.service";
 import { enviarEmail, emailTemplates } from "../services/email.service";
 import { encrypt } from "../utils/encryption";
@@ -285,7 +286,20 @@ internalRouter.post("/telnyx/purchase-number", async (req, res) => {
 
     try {
       // Comprar número específico: Si es flujo root, childAccountId será null/undefined.
-      const comprado = await purchasePhoneNumber(phoneNumber, isRootFlow ? undefined : (childAccountId || undefined));
+      let comprado: Awaited<ReturnType<typeof purchasePhoneNumber>>;
+      try {
+        comprado = await purchasePhoneNumber(
+          phoneNumber,
+          isRootFlow ? undefined : (childAccountId || undefined)
+        );
+      } catch (buyError) {
+        // Reintento tras un fallo previo: el número ya es nuestro → reutilizarlo
+        // y completar asignación/webhooks en vez de volver a comprar.
+        const propio = await getOwnedNumberByPhone(phoneNumber);
+        if (!propio) throw buyError;
+        logger.warn({ phoneNumber }, "Número ya comprado previamente; completando configuración");
+        comprado = propio;
+      }
 
       // Obtener o crear conexión de voz para streaming
       const wsHost = process.env.DOMINIO_EXPRESS?.replace(/^https?:\/\//, "") || "localhost:3001";

@@ -263,15 +263,23 @@ internalRouter.post("/telnyx/purchase-number", async (req, res) => {
       return res.status(409).json({ error: "Este número ya está en tu cuenta." });
     }
 
-    // Precio de venta = costo real del proveedor × (1 + margen%); el servidor
-    // decide el precio (no el frontend).
+    // Precio de venta = costo real × (1 + margen%). Telnyx no tiene filtro por
+    // número exacto (lo ignora): solo confiamos en el costo si la consulta
+    // devuelve ESE número. Respaldo: el costo que el frontend vio en nuestra
+    // búsqueda, con piso mínimo = default admin × margen (evita vender bajo costo).
     const infoTelnyx = await getAvailableNumberByPhone(phoneNumber);
+    const costoReal =
+      infoTelnyx && infoTelnyx.phone_number === phoneNumber
+        ? infoTelnyx.cost_information
+        : undefined;
     const { defAlta, defMes, factor } = await preciosNumero();
-    const upfrontRaw = parseFloat(String(infoTelnyx?.cost_information?.upfront_cost ?? ""));
-    const monthlyRaw = parseFloat(String(infoTelnyx?.cost_information?.monthly_cost ?? ""));
-    const upfront = precioVenta(upfrontRaw, defAlta, factor);
-    const monthly = precioVenta(monthlyRaw, defMes, factor);
-    const currency = infoTelnyx?.cost_information?.currency ?? parsed.data.currency ?? "USD";
+    const upfrontRaw = parseFloat(String(costoReal?.upfront_cost ?? parsed.data.upfrontCost ?? ""));
+    const monthlyRaw = parseFloat(String(costoReal?.monthly_cost ?? parsed.data.monthlyCost ?? ""));
+    const pisoAlta = Math.round(defAlta * factor * 100) / 100;
+    const pisoMes = Math.round(defMes * factor * 100) / 100;
+    const upfront = Math.max(precioVenta(upfrontRaw, defAlta, factor), pisoAlta);
+    const monthly = Math.max(precioVenta(monthlyRaw, defMes, factor), pisoMes);
+    const currency = costoReal?.currency ?? parsed.data.currency ?? "USD";
 
     // Verificar saldo antes de cobrar el alta
     if (!(await saldoPermiteCobro(userId, upfront))) {
@@ -302,9 +310,17 @@ internalRouter.post("/telnyx/purchase-number", async (req, res) => {
         // Reintento tras un fallo previo: el número ya es nuestro → reutilizarlo
         // y completar asignación/webhooks en vez de volver a comprar.
         const propio = await getOwnedNumberByPhone(phoneNumber);
-        if (!propio) throw buyError;
-        logger.warn({ phoneNumber }, "Número ya comprado previamente; completando configuración");
-        comprado = propio;
+        if (propio) {
+          logger.warn({ phoneNumber }, "Número ya comprado previamente; completando configuración");
+          comprado = propio;
+        } else if (/10005|404/.test(String((buyError as Error).message))) {
+          // El inventario de Telnyx rota en tiempo real: el número desapareció
+          throw new Error(
+            `El número ${phoneNumber} ya no está disponible en el inventario del proveedor. Vuelve a buscar y elige otro.`
+          );
+        } else {
+          throw buyError;
+        }
       }
 
       // Obtener o crear conexión de voz para streaming

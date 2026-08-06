@@ -273,12 +273,20 @@ internalRouter.post("/telnyx/purchase-number", async (req, res) => {
         ? infoTelnyx.cost_information
         : undefined;
     const { defAlta, defMes, factor } = await preciosNumero();
-    const upfrontRaw = parseFloat(String(costoReal?.upfront_cost ?? parsed.data.upfrontCost ?? ""));
-    const monthlyRaw = parseFloat(String(costoReal?.monthly_cost ?? parsed.data.monthlyCost ?? ""));
     const pisoAlta = Math.round(defAlta * factor * 100) / 100;
     const pisoMes = Math.round(defMes * factor * 100) / 100;
-    const upfront = Math.max(precioVenta(upfrontRaw, defAlta, factor), pisoAlta);
-    const monthly = Math.max(precioVenta(monthlyRaw, defMes, factor), pisoMes);
+    // El frontend envía el precio de venta que mostró (YA con margen, calculado
+    // por nuestra búsqueda): se respeta tal cual, con piso mínimo. Solo se
+    // recalcula desde el costo crudo si Telnyx devolvió ESE número exacto
+    // (evita aplicar el margen dos veces).
+    const ventaAlta = parseFloat(String(parsed.data.upfrontCost ?? ""));
+    const ventaMes = parseFloat(String(parsed.data.monthlyCost ?? ""));
+    const upfront = costoReal
+      ? precioVenta(parseFloat(String(costoReal.upfront_cost)), defAlta, factor)
+      : Math.max(isFinite(ventaAlta) && ventaAlta > 0 ? ventaAlta : pisoAlta, pisoAlta);
+    const monthly = costoReal
+      ? precioVenta(parseFloat(String(costoReal.monthly_cost)), defMes, factor)
+      : Math.max(isFinite(ventaMes) && ventaMes > 0 ? ventaMes : pisoMes, pisoMes);
     const currency = costoReal?.currency ?? parsed.data.currency ?? "USD";
 
     // Verificar saldo antes de cobrar el alta

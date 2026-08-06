@@ -246,8 +246,9 @@ export async function purchasePhoneNumber(
   childAccountId?: string,
   connectionId?: string
 ): Promise<TelnyxPhoneNumber> {
+  // La compra en Telnyx v2 es POST /v2/number_orders con array phone_numbers
   const body: Record<string, unknown> = {
-    phone_number: phoneNumber,
+    phone_numbers: [{ phone_number: phoneNumber }],
   };
   if (childAccountId) {
     body.account_id = childAccountId;
@@ -256,16 +257,26 @@ export async function purchasePhoneNumber(
     body.connection_id = connectionId;
   }
 
-  const data = await telnyxFetch<{ data: TelnyxPhoneNumber }>(
-    "/phone_numbers",
+  const data = await telnyxFetch<{ data: Record<string, unknown> }>(
+    "/number_orders",
     {
       method: "POST",
       body: JSON.stringify(body),
     }
   );
 
+  // La respuesta es un number_order; extraer el número comprado si viene incluido
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const bought = (data.data as any)?.phone_numbers?.[0];
+  const comprado: TelnyxPhoneNumber | null =
+    bought?.id ? (bought as TelnyxPhoneNumber) : await getOwnedNumberByPhone(phoneNumber);
+
+  if (!comprado) {
+    throw new Error(`Número ${phoneNumber} ordenado pero no se pudo obtener su registro`);
+  }
+
   logger.info({ phoneNumber, childAccountId }, "Número comprado en Telnyx");
-  return data.data;
+  return comprado;
 }
 
 /**
@@ -364,10 +375,11 @@ export async function getOwnedNumberByPhone(
   phoneNumber: string
 ): Promise<TelnyxPhoneNumber | null> {
   try {
+    // Telnyx no soporta filtro exacto por número: listar y matchear localmente
     const data = await telnyxFetch<{ data: TelnyxPhoneNumber[] }>(
-      `/phone_numbers?filter[phone_number][]=${encodeURIComponent(phoneNumber)}`
+      `/phone_numbers?page[size]=200`
     );
-    return data.data?.[0] ?? null;
+    return data.data?.find((n) => n.phone_number === phoneNumber) ?? null;
   } catch (e) {
     logger.warn({ error: (e as Error).message, phoneNumber }, "No se pudo consultar número propio");
     return null;

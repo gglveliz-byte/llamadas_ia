@@ -131,11 +131,13 @@ telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
 
   logger.info({ call_control_id, userId, streamUrl }, "TeXML generado - conectando stream");
 
-  // 8. Registrar métrica de inicio de llamada
+  // 8. Registrar métrica de inicio de llamada (con el origen para el historial)
   await db.callMetric.create({
     data: {
       callSid: call_control_id,
       userId,
+      callerNumber: from ?? null,
+      toNumber: to ?? null,
       inicio: new Date(),
     },
   }).catch(() => {});

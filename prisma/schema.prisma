@@ -193,6 +193,8 @@ model CallMetric {
   id                 Int       @id @default(autoincrement())
   callSid            String?
   userId             String?   @db.Uuid
+  callerNumber       String?
+  toNumber           String?
   inicio             DateTime?
   fin                DateTime?
   duracionSegundos   Int?

@@ -442,6 +442,56 @@ internalRouter.post("/rentas/procesar-usuario", async (req, res) => {
 });
 
 /**
+ * GET /internal/calls?userId=
+ * Historial de llamadas: métricas + grabación (URL firmada) + transcripción.
+ */
+internalRouter.get("/calls", async (req, res) => {
+  const userId = String(req.query.userId ?? "");
+  if (!userId) return res.status(400).json({ error: "userId requerido" });
+
+  try {
+    const metrics = await db.callMetric.findMany({
+      where: { userId },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
+
+    const calls = await Promise.all(
+      metrics.map(async (m) => {
+        const rec = m.callSid
+          ? await db.callRecording.findFirst({ where: { telnyxCallControlId: m.callSid } })
+          : null;
+        const transcripts = m.callSid
+          ? await db.callTranscript.findMany({ where: { callSid: m.callSid }, orderBy: { ts: "asc" } })
+          : [];
+        let audioUrl: string | null = null;
+        if (rec?.r2FileUrl) {
+          const { generarUrlFirmada } = await import("../services/audio.service");
+          audioUrl = await generarUrlFirmada(rec.r2FileUrl);
+        }
+        return {
+          id: m.id,
+          callSid: m.callSid,
+          callerNumber: m.callerNumber,
+          toNumber: m.toNumber,
+          inicio: m.inicio,
+          fin: m.fin,
+          duracionSegundos: m.duracionSegundos,
+          cobroAplicado: m.cobroAplicado?.toNumber() ?? null,
+          audioUrl,
+          transcripts: transcripts.map((t) => ({ rol: t.rol, texto: t.texto, ts: t.ts })),
+        };
+      })
+    );
+
+    res.json({ calls });
+  } catch (e) {
+    logger.error({ error: (e as Error).message }, "Error listando llamadas");
+    res.status(500).json({ error: "Error interno" });
+  }
+});
+
+/**
  * POST /internal/telnyx/create-child-account
  * Crea una child account Telnyx completa para un nuevo cliente.
  * Body: { businessName, email, webhookBaseUrl }

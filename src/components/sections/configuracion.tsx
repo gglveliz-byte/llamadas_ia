@@ -13,6 +13,7 @@ import {
   Globe,
   Check,
   AlertTriangle,
+  RefreshCw,
 } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import { ApiClient, type BusinessSettings } from "@/lib/api";
@@ -87,6 +88,8 @@ export function ConfiguracionSection() {
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [searchModalOpen, setSearchModalOpen] = React.useState(false);
+  const [llamadas, setLlamadas] = React.useState<LlamadaItem[]>([]);
+  const [transcriptOpen, setTranscriptOpen] = React.useState<number | null>(null);
   const [phoneNumbers, setPhoneNumbers] = React.useState<
     Array<{
       id: number;
@@ -124,6 +127,22 @@ export function ConfiguracionSection() {
   React.useEffect(() => {
     cargar();
   }, [cargar]);
+
+  const cargarLlamadas = React.useCallback(async () => {
+    if (!usuario) return;
+    try {
+      const data = await ApiClient.get<{ calls: LlamadaItem[] }>(
+        `/api/calls?userId=${usuario.id}`
+      );
+      setLlamadas(data.calls || []);
+    } catch {
+      // historial no disponible: no bloquear la página
+    }
+  }, [usuario]);
+
+  React.useEffect(() => {
+    cargarLlamadas();
+  }, [cargarLlamadas]);
 
   const guardar = async (parcial?: Partial<BusinessSettings>) => {
     if (!usuario || !settings) return;
@@ -672,6 +691,73 @@ export function ConfiguracionSection() {
             </Button>
           </CardContent>
         </Card>
+
+        <Card className="panel-wa mt-4">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">Historial de llamadas</CardTitle>
+              <Button variant="outline" size="sm" onClick={cargarLlamadas}>
+                <RefreshCw className="h-3.5 w-3.5 mr-1" /> Actualizar
+              </Button>
+            </div>
+            <CardDescription>
+              Quién llamó, cuánto duró, cuánto costó y la grabación de cada llamada.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {llamadas.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">
+                Aún no hay llamadas registradas. Cuando alguien llame a tu número verás aquí
+                quién fue, la duración, el costo y su grabación.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {llamadas.map((l) => (
+                  <div key={l.id} className="rounded-lg border border-border p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2 text-sm">
+                      <div className="font-semibold font-mono">
+                        {l.callerNumber || "Número desconocido"}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {l.inicio ? new Date(l.inicio).toLocaleString("es-MX") : "—"}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                      <span>Duración: {l.duracionSegundos ?? 0}s</span>
+                      <span>Costo: ${(l.cobroAplicado ?? 0).toFixed(2)}</span>
+                      {l.toNumber && <span>→ {l.toNumber}</span>}
+                    </div>
+                    {l.audioUrl ? (
+                      <audio controls src={l.audioUrl} className="w-full h-9" />
+                    ) : (
+                      <p className="text-xs text-muted-foreground">Sin grabación disponible.</p>
+                    )}
+                    {l.transcripts.length > 0 && (
+                      <div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setTranscriptOpen(transcriptOpen === l.id ? null : l.id)}
+                        >
+                          {transcriptOpen === l.id ? "Ocultar transcripción" : "Ver transcripción"}
+                        </Button>
+                        {transcriptOpen === l.id && (
+                          <div className="mt-2 space-y-1 max-h-48 overflow-y-auto text-xs">
+                            {l.transcripts.map((t, i) => (
+                              <p key={i}>
+                                <strong>{t.rol === "ai" ? "IA" : "Cliente"}:</strong> {t.texto}
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </TabsContent>
     </Tabs>
     {usuario && (
@@ -740,6 +826,19 @@ function RecursosEditor({
       )}
     </div>
   );
+}
+
+interface LlamadaItem {
+  id: number;
+  callSid: string | null;
+  callerNumber: string | null;
+  toNumber: string | null;
+  inicio: string | null;
+  fin: string | null;
+  duracionSegundos: number | null;
+  cobroAplicado: number | null;
+  audioUrl: string | null;
+  transcripts: Array<{ rol: string; texto: string; ts: string }>;
 }
 
 interface NumeroDisponible {

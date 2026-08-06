@@ -10,7 +10,7 @@ import type { Request, Response, NextFunction } from "express";
 import crypto from "crypto";
 import { logger } from "../utils/logger";
 
-const PUBLIC_KEY = process.env.TELNYX_PUBLIC_KEY!;
+const PUBLIC_KEY = process.env.TELNYX_PUBLIC_KEY;
 
 export interface TelnyxSignatureParts {
   timestamp: string;
@@ -52,6 +52,17 @@ function verifyEd25519(publicKeyPem: string, message: string, signatureB64: stri
 }
 
 export function validarFirmaTelnyx(req: Request, res: Response, next: NextFunction): void {
+  if (!PUBLIC_KEY) {
+    if (process.env.NODE_ENV === "production") {
+      logger.error("TELNYX_PUBLIC_KEY no configurada en producción - webhook rechazado");
+      res.status(500).json({ error: "Configuración de firma incompleta" });
+      return;
+    }
+    logger.warn("TELNYX_PUBLIC_KEY ausente - omitiendo validación de firma (dev)");
+    next();
+    return;
+  }
+
   const signatureHeader = req.headers["telnyx-signature-ed25519"] as string | undefined;
 
   if (!signatureHeader) {
@@ -78,8 +89,16 @@ export function validarFirmaTelnyx(req: Request, res: Response, next: NextFuncti
     return;
   }
 
-  // Construir mensaje: timestamp + "|" + body
-  const body = typeof req.body === "string" ? req.body : JSON.stringify(req.body);
+  // Construir mensaje: timestamp + "|" + body. Telnyx firma el body RAW;
+  // usar el rawBody capturado por express (no JSON.stringify del body parseado,
+  // que puede diferir en orden/escapes y romper la firma).
+  const raw = (req as { rawBody?: string }).rawBody;
+  const body =
+    typeof raw === "string" && raw.length > 0
+      ? raw
+      : typeof req.body === "string"
+        ? req.body
+        : JSON.stringify(req.body);
   const message = `${timestamp}|${body}`;
 
   if (!verifyEd25519(PUBLIC_KEY, message, signature)) {

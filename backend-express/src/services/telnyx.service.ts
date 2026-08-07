@@ -543,6 +543,35 @@ export async function answerCall(callControlId: string, clientState?: string): P
 }
 
 /**
+ * Call Control API - Inicia streaming bidireccional de audio.
+ * POST /v2/calls/{call_control_id}/actions/streaming_start
+ * Conecta el audio de la llamada a un WebSocket server externo.
+ */
+export async function startStreaming(params: {
+  callControlId: string;
+  streamUrl: string;
+  clientState?: string;
+}): Promise<void> {
+  const body: Record<string, unknown> = {
+    stream_url: params.streamUrl,
+    stream_track: "both_tracks",
+  };
+  if (params.clientState) {
+    body.client_state = Buffer.from(params.clientState).toString("base64");
+  }
+
+  await telnyxFetch(
+    `/calls/${params.callControlId}/actions/streaming_start`,
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    }
+  );
+
+  logger.info({ callControlId: params.callControlId, streamUrl: params.streamUrl }, "Streaming bidireccional iniciado en Telnyx");
+}
+
+/**
  * Call Control API - Cuelga llamada.
  * POST /v2/calls/{call_control_id}/actions/hangup
  */

@@ -10,7 +10,6 @@
 import fs from "fs";
 import path from "path";
 import type { WebSocket } from "ws";
-import g711 from "g711";
 import { crearSesionGemini, procesarMensajesGemini } from "./gemini.handler";
 const MODELO = process.env.GEMINI_MODEL || "models/gemini-3.1-flash-live-preview";
 import { transcodificarTelefoníaAGemini, transcodificarGeminiATelefonía } from "../utils/audioTranscoder";
@@ -301,8 +300,8 @@ async function manejarStart(
   );
 
   // Detector de voz (Silero VAD) para barge-in preciso y filtrado de ruido.
-  // Telnyx envía μ-law 8kHz: se declara sampleRate 8000 y la librería
-  // re-muestrea a 16k internamente.
+  // La librería solo acepta native >= 16kHz, así que el audio Telnyx (μ-law 8kHz)
+  // se up-sampla a 16kHz antes de alimentar el VAD (ver manejarMedia).
   sesion.detectorVoz = await crearSileroVAD(
     () => {
       if (sesion.guard?.debeIgnorarSpeechStart()) {
@@ -325,7 +324,7 @@ async function manejarStart(
         sesion.sesionGemini.send(JSON.stringify({ clientContent: { turns: [], turnComplete: true } }));
       }
     },
-    8000
+    16000
   );
 
   // Notificar al dueño
@@ -360,11 +359,13 @@ async function manejarMedia(
     return;
   }
 
+  // Transcodificar Telnyx (μ-law 8k) → Gemini (PCM 16k) ANTES del VAD,
+  // porque Silero VAD requiere audio >= 16kHz (no soporta native 8k).
+  const pcm16k = await transcodificarTelefoníaAGemini(payload);
+
   // Detección de barge-in y Voice Activity (Silero VAD - ML, distingue voz de ruido)
-  const mulawBuf = Buffer.from(payload, "base64");
-  const pcmSamples = g711.ulawToPCM(mulawBuf);
-  
   if (sesion.detectorVoz) {
+    const pcmSamples = new Int16Array(pcm16k.buffer, pcm16k.byteOffset, pcm16k.length / 2);
     const float32 = new Float32Array(pcmSamples.length);
     for (let i = 0; i < pcmSamples.length; i++) {
       float32[i] = pcmSamples[i] / 32768.0;
@@ -384,9 +385,6 @@ async function manejarMedia(
   if (!sesion.isSpeaking) {
     return;
   }
-
-  // Transcodificar Telnyx (μ-law 8k) → Gemini (PCM 16k)
-  const pcm16k = await transcodificarTelefoníaAGemini(payload);
 
   // Enviar a Gemini como input en tiempo real
   try {

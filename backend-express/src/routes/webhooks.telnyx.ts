@@ -141,14 +141,9 @@ telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
         const clientStateObj = JSON.stringify({ userId, dir: "inbound" });
         const b64State = Buffer.from(clientStateObj).toString("base64");
         
+        // Solo contestar aquí. El streaming se iniciará en el evento call.answered para evitar race conditions en Telnyx
         await answerCall(call_control_id, b64State);
-
-        const wsHost = process.env.DOMINIO_EXPRESS?.replace(/^https?:\/\//, "") || "localhost:3001";
-        const streamUrl = `wss://${wsHost}/stream/telnyx?user_id=${userId}&call_control_id=${call_control_id}&dir=inbound`;
-
-        await startStreaming(call_control_id, streamUrl, b64State);
-
-        logger.info({ call_control_id, userId, streamUrl }, "[WEBHOOK TELNYX] 🔗 Solicitud de WebSocket (streaming_start) enviada a Telnyx.");
+        logger.info({ call_control_id, userId }, "[WEBHOOK TELNYX] Llamada contestada. Esperando evento call.answered para iniciar stream...");
 
         // 6. Registrar métrica
         await db.callMetric.create({
@@ -179,16 +174,12 @@ telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
             logger.info(`[WEBHOOK TELNYX] Estado del cliente (client_state) decodificado: ${decodificado}`);
             try {
               const stateObj = JSON.parse(decodificado);
-              if (stateObj.dir === "outbound") {
-                const wsHost = process.env.DOMINIO_EXPRESS?.replace(/^https?:\/\//, "") || "localhost:3001";
-                const streamUrl = `wss://${wsHost}/stream/telnyx?user_id=${stateObj.userId}&call_control_id=${call_control_id}&dir=outbound`;
-                
-                logger.info(`[WEBHOOK TELNYX] 🚀 Iniciando streaming para llamada saliente hacia URL: ${streamUrl}`);
-                await startStreaming(call_control_id, streamUrl, client_state);
-                logger.info({ call_control_id, userId: stateObj.userId }, "[WEBHOOK TELNYX] 🔗 Solicitud de WebSocket enviada con éxito.");
-              } else {
-                logger.info(`[WEBHOOK TELNYX] La llamada es inbound, el streaming ya fue solicitado en call.initiated.`);
-              }
+              const wsHost = process.env.DOMINIO_EXPRESS?.replace(/^https?:\/\//, "") || "localhost:3001";
+              const streamUrl = `wss://${wsHost}/stream/telnyx?user_id=${stateObj.userId}&call_control_id=${call_control_id}&dir=${stateObj.dir || "inbound"}`;
+              
+              logger.info(`[WEBHOOK TELNYX] 🚀 Iniciando streaming para llamada (${stateObj.dir || "inbound"}) hacia URL: ${streamUrl}`);
+              await startStreaming(call_control_id, streamUrl, client_state);
+              logger.info({ call_control_id, userId: stateObj.userId }, "[WEBHOOK TELNYX] 🔗 Solicitud de WebSocket (streaming_start) enviada con éxito.");
             } catch {
               logger.warn("[WEBHOOK TELNYX] El client_state no es JSON válido.");
             }

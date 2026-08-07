@@ -87,11 +87,12 @@ interface SesionLlamada {
   bargeInDetectado: boolean;
   grabacionActiva: boolean;
   finalizada: boolean;
-  transcripts: TranscriptLinea[];
+  transcripts: Array<{ texto: string; rol: string; ts: number }>;
   settings: {
     aiLanguage: string;
     grabacionActiva: boolean;
   } | null;
+  alertaMediaSinGemini?: boolean;
 }
 
 const sesionesActivas = new Map<string, SesionLlamada>();
@@ -181,7 +182,7 @@ export function registrarTelnyxStreamHandler(wss: import("ws").WebSocketServer):
           logger.info({ digit: (mensaje as StreamDtmfMessage).dtmf.digit, callControlId }, "DTMF Telnyx recibido");
           break;
         default:
-          logger.debug({ event: (mensaje as any).event }, "Evento WebSocket Telnyx ignorado");
+          logger.warn({ event: (mensaje as any).event, dataPreview: data.toString().slice(0, 100) }, "Evento WebSocket Telnyx desconocido/ignorado");
       }
     });
 
@@ -344,7 +345,14 @@ async function manejarMedia(
   }
 
   // Solo procesar inbound con Gemini
-  if (track !== "inbound" || !sesion.sesionGemini) return;
+  if (track !== "inbound") return;
+  if (!sesion.sesionGemini) {
+    if (!sesion.alertaMediaSinGemini) {
+      logger.warn({ callControlId }, "[STREAM TELNYX] Recibiendo audio (media) pero Gemini no está inicializado (¿faltó evento start?)");
+      sesion.alertaMediaSinGemini = true; // Solo loguear una vez
+    }
+    return;
+  }
 
   // Detección de barge-in y Voice Activity (Silero VAD - ML, distingue voz de ruido)
   const mulawBuf = Buffer.from(payload, "base64");

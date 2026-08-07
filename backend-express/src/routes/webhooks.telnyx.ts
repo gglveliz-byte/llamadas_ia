@@ -1,16 +1,18 @@
 /**
- * Webhooks de Telnyx - Voz entrante.
- * Cumple spec sección 7.1 adaptada a Telnyx TeXML.
- * 
- * POST /webhooks/telnyx/voice
- * Recibe call.initiated, genera TeXML con <Dial><Stream> para conectar a Gemini.
+ * Webhooks de Telnyx - Voz entrante y eventos Call Control.
+ * Cumple spec sección 7.1 adaptada a Telnyx Call Control API.
  */
 import { Router } from "express";
 import { z } from "zod";
 import { db } from "../models/database.pool";
 import { validarFirmaTelnyx } from "../middleware/telnyxSignature";
 import { verificarSaldo } from "../services/billing.service";
-import { generateInboundTeXML, generateRejectionTeXML } from "../services/telnyx.service";
+import {
+  answerCall,
+  hangupCall,
+  startStreaming,
+  speakText,
+} from "../services/telnyx.service";
 import { logger } from "../utils/logger";
 
 const telnyxVoiceSchema = z.object({
@@ -32,151 +34,125 @@ export const telnyxRouter = Router();
 /**
  * POST /webhooks/telnyx/voice
  * Webhook de llamada entrante (call.initiated).
- * Valida firma, verifica saldo/horario, responde con TeXML <Dial><Stream>.
+ * Valida firma, verifica saldo/horario, responde 200 y usa Call Control API.
  */
 telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
   const parsed = telnyxVoiceSchema.safeParse(req.body);
   if (!parsed.success) {
     logger.warn({ errors: parsed.error.issues }, "Webhook Telnyx con datos inválidos");
-    return res.type("application/xml").send(
-      generateRejectionTeXML("Error de configuración.")
-    );
-  }
-
-  const { event_type, payload } = parsed.data;
-  const { call_control_id, from, to, direction, client_state } = payload;
-
-  logger.info({ event_type, call_control_id, from, to, direction }, "Webhook Telnyx voz recibido");
-
-  // Llamadas salientes: el dueño las inicia desde el panel; conectamos el
-  // stream de la IA con dir=outbound para el saludo/prompt saliente.
-  if (event_type === "call.initiated" && direction === "outgoing") {
-    // client_state viaja en base64 (requisito de Telnyx): decodificar a userId
-    let userId: string | undefined;
-    if (client_state) {
-      const decodificado = Buffer.from(client_state, "base64").toString("utf8");
-      userId = /^[0-9a-fA-F-]{36}$/.test(decodificado) ? decodificado : client_state;
-    }
-    if (!userId) {
-      logger.warn({ call_control_id }, "Llamada saliente sin client_state");
-      return res.status(200).send("OK");
-    }
-
-    const saldoOk = await verificarSaldo(userId);
-    if (!saldoOk) {
-      return res.type("application/xml").send(
-        generateRejectionTeXML("Lo sentimos, saldo insuficiente para completar la llamada.")
-      );
-    }
-
-    const wsHost = process.env.DOMINIO_EXPRESS?.replace(/^https?:\/\//, "") || "localhost:3001";
-    const streamUrl = `wss://${wsHost}/stream/telnyx`;
-    const texml = generateInboundTeXML({
-      streamUrl,
-      callControlId: call_control_id,
-      userId,
-      dir: "outbound",
-    });
-
-    logger.info({ call_control_id, userId }, "TeXML saliente generado - conectando stream");
-    return res.type("application/xml").send(texml);
-  }
-
-  // Solo procesamos llamadas entrantes
-  if (event_type !== "call.initiated" || direction !== "incoming") {
-    logger.info({ event_type, direction }, "Evento no procesado (no es call.initiated incoming)");
     return res.status(200).send("OK");
   }
 
-  // Buscar usuario por número destino (to)
-  const phone = await db.phoneNumber.findFirst({
-    where: { phoneNumber: to, isActive: true },
-    include: { user: true },
-  });
+  const { event_type, payload } = parsed.data;
+  const { call_control_id, from, to, direction } = payload;
 
-  if (!phone?.user) {
-    logger.warn({ to }, "Número no registrado en Telnyx");
-    return res.type("application/xml").send(
-      generateRejectionTeXML("Lo sentimos, este número no está configurado.")
-    );
-  }
+  logger.info({ event_type, call_control_id, from, to, direction }, "Webhook Telnyx voz recibido");
 
-  const userId = phone.user.id;
+  // Respondemos 200 inmediatamente para que Telnyx no reintente
+  res.status(200).send("OK");
 
-  // 1. Verificar mantenimiento global
-  const mantenimiento = await db.adminConfig.findUnique({
-    where: { clave: "mensaje_mantenimiento" },
-  });
-  if (mantenimiento?.valor) {
-    return res.type("application/xml").send(
-      generateRejectionTeXML(mantenimiento.valor)
-    );
-  }
+  // Procesamos en background
+  (async () => {
+    if (event_type === "call.initiated" && direction === "outgoing") {
+      // Las llamadas salientes se inician con createOutboundCall.
+      // El streaming se inicia al recibir call.answered en la ruta de /call-control.
+      return;
+    }
 
-  // 2. Verificar saldo
-  const saldoOk = await verificarSaldo(userId);
-  if (!saldoOk) {
-    return res.type("application/xml").send(
-      generateRejectionTeXML("Lo sentimos, este servicio no está disponible temporalmente.")
-    );
-  }
+    if (event_type === "call.initiated" && direction === "incoming") {
+      // Buscar usuario por número destino (to)
+      const phone = await db.phoneNumber.findFirst({
+        where: { phoneNumber: to, isActive: true },
+        include: { user: true },
+      });
 
-  // 3. Verificar suspención
-  if (phone.user.isSuspended) {
-    return res.type("application/xml").send(
-      generateRejectionTeXML("Esta cuenta está suspendida.")
-    );
-  }
+      if (!phone?.user) {
+        logger.warn({ to }, "Número no registrado en Telnyx");
+        await answerCall(call_control_id);
+        await speakText(call_control_id, "Lo sentimos, este número no está configurado.");
+        setTimeout(() => hangupCall(call_control_id).catch(() => {}), 8000);
+        return;
+      }
 
-  // 4. Verificar horario de atención
-  const settings = await db.businessSettings.findUnique({ where: { userId } });
-  if (!settings) {
-    return res.type("application/xml").send(
-      generateRejectionTeXML("Configuración no encontrada.")
-    );
-  }
+      const userId = phone.user.id;
 
-  const dentroDeHorario = verificarHorario(settings);
-  if (!dentroDeHorario && !settings.modo247) {
-    const horarioTexto = formatearHorarioTts(settings);
-    return res.type("application/xml").send(
-      generateRejectionTeXML(`Gracias por llamar. Nuestro horario de atención es ${horarioTexto}.`, settings.aiLanguage)
-    );
-  }
+      // 1. Verificar mantenimiento global
+      const mantenimiento = await db.adminConfig.findUnique({
+        where: { clave: "mensaje_mantenimiento" },
+      });
+      if (mantenimiento?.valor) {
+        await answerCall(call_control_id);
+        await speakText(call_control_id, mantenimiento.valor);
+        setTimeout(() => hangupCall(call_control_id).catch(() => {}), 8000);
+        return;
+      }
 
-  // 5. Construir URL de WebSocket streaming
-  const wsHost = process.env.DOMINIO_EXPRESS?.replace(/^https?:\/\//, "") || "localhost:3001";
-  const streamUrl = `wss://${wsHost}/stream/telnyx`;
+      // 2. Verificar saldo
+      const saldoOk = await verificarSaldo(userId);
+      if (!saldoOk) {
+        await answerCall(call_control_id);
+        await speakText(call_control_id, "Lo sentimos, este servicio no está disponible temporalmente.");
+        setTimeout(() => hangupCall(call_control_id).catch(() => {}), 8000);
+        return;
+      }
 
-  // 6. Mensaje de consentimiento si está activo
-  const consentMessage = settings.consentimientoActivo && settings.mensajeConsentimiento
-    ? settings.mensajeConsentimiento
-    : undefined;
+      // 3. Verificar suspención
+      if (phone.user.isSuspended) {
+        await answerCall(call_control_id);
+        await speakText(call_control_id, "Esta cuenta está suspendida.");
+        setTimeout(() => hangupCall(call_control_id).catch(() => {}), 8000);
+        return;
+      }
 
-  // 7. Generar TeXML con <Dial><Stream>
-  const texml = generateInboundTeXML({
-    streamUrl,
-    callControlId: call_control_id,
-    userId,
-    language: settings.aiLanguage,
-    voice: obtenerVozNeural(settings.aiLanguage),
-    consentMessage,
-  });
+      // 4. Verificar horario de atención
+      const settings = await db.businessSettings.findUnique({ where: { userId } });
+      if (!settings) {
+        await answerCall(call_control_id);
+        await speakText(call_control_id, "Configuración no encontrada.");
+        setTimeout(() => hangupCall(call_control_id).catch(() => {}), 8000);
+        return;
+      }
 
-  logger.info({ call_control_id, userId, streamUrl }, "TeXML generado - conectando stream");
+      const dentroDeHorario = verificarHorario(settings);
+      if (!dentroDeHorario && !settings.modo247) {
+        const horarioTexto = formatearHorarioTts(settings);
+        await answerCall(call_control_id);
+        await speakText(
+          call_control_id,
+          `Gracias por llamar. Nuestro horario de atención es ${horarioTexto}.`,
+          obtenerIdioma(settings.aiLanguage),
+          obtenerVoz(settings.aiLanguage)
+        );
+        setTimeout(() => hangupCall(call_control_id).catch(() => {}), 15000);
+        return;
+      }
 
-  // 8. Registrar métrica de inicio de llamada (con el origen para el historial)
-  await db.callMetric.create({
-    data: {
-      callSid: call_control_id,
-      userId,
-      callerNumber: from ?? null,
-      toNumber: to ?? null,
-      inicio: new Date(),
-    },
-  }).catch(() => {});
+      // 5. Todo OK - Contestar e Iniciar Streaming
+      // Pasamos el client_state como JSON con el userId y dirección para identificarlo después si fuera necesario
+      const clientStateObj = JSON.stringify({ userId, dir: "inbound" });
+      const b64State = Buffer.from(clientStateObj).toString("base64");
+      
+      await answerCall(call_control_id, b64State);
 
-  return res.type("application/xml").send(texml);
+      const wsHost = process.env.DOMINIO_EXPRESS?.replace(/^https?:\/\//, "") || "localhost:3001";
+      const streamUrl = `wss://${wsHost}/stream/telnyx?user_id=${userId}&call_control_id=${call_control_id}&dir=inbound`;
+
+      await startStreaming(call_control_id, streamUrl, b64State);
+
+      logger.info({ call_control_id, userId, streamUrl }, "Llamada contestada e iniciando stream bidireccional");
+
+      // 6. Registrar métrica
+      await db.callMetric.create({
+        data: {
+          callSid: call_control_id,
+          userId,
+          callerNumber: from ?? null,
+          toNumber: to ?? null,
+          inicio: new Date(),
+        },
+      }).catch(() => {});
+    }
+  })().catch((e) => logger.error({ error: (e as Error).message }, "Error procesando call.initiated"));
 });
 
 /**
@@ -203,7 +179,7 @@ telnyxRouter.post("/call-control", validarFirmaTelnyx, async (req, res) => {
   }
 
   const { event_type, payload } = parsed.data;
-  const { call_control_id, recording_id, recording_url } = payload;
+  const { call_control_id, recording_id, recording_url, client_state } = payload;
 
   logger.info({ event_type, call_control_id }, "Call Control event recibido");
 
@@ -215,6 +191,22 @@ telnyxRouter.post("/call-control", validarFirmaTelnyx, async (req, res) => {
           where: { callSid: call_control_id },
           data: { inicio: new Date() },
         }).catch(() => {});
+
+        // Si es llamada saliente, iniciamos streaming cuando el cliente contesta
+        if (client_state) {
+          const decodificado = Buffer.from(client_state, "base64").toString("utf8");
+          try {
+             const stateObj = JSON.parse(decodificado);
+             if (stateObj.dir === "outbound") {
+               const wsHost = process.env.DOMINIO_EXPRESS?.replace(/^https?:\/\//, "") || "localhost:3001";
+               const streamUrl = `wss://${wsHost}/stream/telnyx?user_id=${stateObj.userId}&call_control_id=${call_control_id}&dir=outbound`;
+               await startStreaming(call_control_id, streamUrl, client_state);
+               logger.info({ call_control_id, userId: stateObj.userId }, "Llamada saliente contestada, stream iniciado");
+             }
+          } catch {
+             // Ignorar si el client_state no es JSON
+          }
+        }
         break;
       }
 
@@ -373,14 +365,19 @@ function formatearHorarioTts(settings: { businessHours: unknown; aiLanguage: str
   }
 }
 
-function obtenerVozNeural(codigo: string): string {
-  const voces: Record<string, string> = {
-    es: "neural-es-ES",
-    en: "neural-en-US",
-    pt: "neural-pt-BR",
-    fr: "neural-fr-FR",
-    it: "neural-it-IT",
-    de: "neural-de-DE",
+function obtenerIdioma(codigo: string): string {
+  const mapeo: Record<string, string> = {
+    es: "es-ES",
+    en: "en-US",
+    pt: "pt-BR",
+    fr: "fr-FR",
+    it: "it-IT",
+    de: "de-DE",
   };
-  return voces[codigo] ?? "neural-es-ES";
+  return mapeo[codigo] ?? "es-ES";
+}
+
+function obtenerVoz(codigo: string): string {
+  // En Telnyx speak, la voz puede ser "female" o "male" para los idiomas estándar
+  return "female";
 }

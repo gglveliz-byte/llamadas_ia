@@ -676,6 +676,45 @@ export async function stopMediaFork(callControlId: string, forkId: string): Prom
   );
 }
 
+/**
+ * Call Control API - Inicia streaming bidireccional (WebSocket).
+ * POST /v2/calls/{call_control_id}/actions/streaming_start
+ */
+export async function startStreaming(
+  callControlId: string,
+  streamUrl: string,
+  clientState?: string
+): Promise<void> {
+  await telnyxFetch(`/calls/${callControlId}/actions/streaming_start`, {
+    method: "POST",
+    body: JSON.stringify({
+      stream_url: streamUrl,
+      stream_track: "both_tracks",
+      client_state: clientState,
+    }),
+  });
+}
+
+/**
+ * Call Control API - Reproduce audio TTS.
+ * POST /v2/calls/{call_control_id}/actions/speak
+ */
+export async function speakText(
+  callControlId: string,
+  payload: string,
+  language = "es-ES",
+  voice = "female"
+): Promise<void> {
+  await telnyxFetch(`/calls/${callControlId}/actions/speak`, {
+    method: "POST",
+    body: JSON.stringify({
+      payload,
+      language,
+      voice,
+    }),
+  });
+}
+
 interface TelnyxPhoneNumber {
   id: string;
   phone_number: string;

@@ -473,11 +473,12 @@ internalRouter.post("/telnyx/outbound-call", async (req, res) => {
 
   try {
     const webhookUrl = `${process.env.DOMINIO_EXPRESS}/webhooks/telnyx/voice`;
+    const clientStateObj = JSON.stringify({ userId, dir: "outbound" });
     const { callControlId } = await createOutboundCall({
       from,
       to,
       webhookUrl,
-      clientState: userId,
+      clientState: clientStateObj,
     });
 
     await db.callMetric
@@ -494,8 +495,12 @@ internalRouter.post("/telnyx/outbound-call", async (req, res) => {
 
     res.json({ ok: true, callControlId });
   } catch (e) {
-    logger.error({ error: (e as Error).message }, "Error iniciando llamada saliente");
-    res.status(500).json({ error: "Error iniciando llamada: " + (e as Error).message });
+    const errorMsg = (e as Error).message;
+    if (errorMsg.includes("D51") || errorMsg.includes("Unverified origination number")) {
+       return res.status(400).json({ error: "El número de origen no está verificado o ya no existe en tu inventario activo." });
+    }
+    logger.error({ error: errorMsg }, "Error iniciando llamada saliente");
+    res.status(500).json({ error: "Error iniciando llamada: " + errorMsg });
   }
 });
 

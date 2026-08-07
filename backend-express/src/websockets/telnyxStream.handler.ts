@@ -229,7 +229,7 @@ async function manejarStart(
   const from = mensaje?.start?.from || metric?.callerNumber || "desconocido";
   const to = mensaje?.start?.to || metric?.toNumber || "desconocido";
 
-  logger.info({ callControlId, streamId, from, to }, `[STREAM TELNYX] 🚀 Evento 'start' / 'connected' procesado. streamId asignado: ${streamId}`);
+  logger.info({ callControlId, streamId, from, to, mediaFormat: mensaje?.start?.media_format }, `[STREAM TELNYX] 🚀 Evento 'start' / 'connected' procesado. streamId asignado: ${streamId}`);
 
   // Cargar settings del negocio (si no se cargó antes)
   if (!sesion.settings) {
@@ -307,8 +307,8 @@ async function manejarStart(
   );
 
   // Detector de voz (Silero VAD) para barge-in preciso y filtrado de ruido.
-  // La librería solo acepta native >= 16kHz, así que el audio Telnyx (μ-law 8kHz)
-  // se up-sampla a 16kHz antes de alimentar el VAD (ver manejarMedia).
+  // La librería solo acepta native >= 16kHz; el stream Telnyx llega como L16 16kHz
+  // (codec bidireccional L16), así que se alimenta el VAD directamente (ver manejarMedia).
   const cerrarTurno = () => {
     if (!sesion.isSpeaking) return;
     if (sesion.timeoutFinTurno) {
@@ -394,8 +394,7 @@ async function manejarMedia(
     return;
   }
 
-  // Transcodificar Telnyx (μ-law 8k) → Gemini (PCM 16k) ANTES del VAD,
-  // porque Silero VAD requiere audio >= 16kHz (no soporta native 8k).
+  // Telnyx envía L16 16kHz (PCM lineal): passthrough directo a Gemini (PCM 16kHz).
   const pcm16k = await transcodificarTelefoníaAGemini(payload);
 
   // Detección de barge-in y Voice Activity (Silero VAD - ML, distingue voz de ruido)
@@ -515,32 +514,24 @@ async function finalizarLlamada(callControlId: string, sesion: SesionLlamada): P
 }
 
 // Helpers para enviar mensajes a Telnyx
-function enviarATelnyx(ws: WebSocket, streamId: string, audioBase64: string): void {
-  const msg: any = {
+function enviarATelnyx(ws: WebSocket, _streamId: string, audioBase64: string): void {
+  // IMPORTANTE: Telnyx espera el frame de reproducción SIN stream_id (AsyncAPI
+  // Client Media Frame: additionalProperties:false, solo event + media.payload).
+  // Agregar stream_id hace que Telnyx descarte el audio y el llamante no oye nada.
+  const msg = {
     event: "media",
     media: { payload: audioBase64 },
   };
-  if (streamId && !streamId.startsWith("v3:")) {
-    msg.stream_id = streamId;
-  }
   if (ws.readyState === ws.OPEN) {
     ws.send(JSON.stringify(msg));
   }
 }
 
-function enviarClearATelnyx(ws: WebSocket, streamId: string): void {
-  // Telnyx no tiene evento "clear" nativo, enviamos media vacía o usamos fork_stop
-  // Como workaround, enviamos media vacía para limpiar buffer
-  const msg: any = {
-    event: "media",
-    media: { payload: "" },
-  };
-  if (streamId && !streamId.startsWith("v3:")) {
-    msg.stream_id = streamId;
-  }
+function enviarClearATelnyx(ws: WebSocket, _streamId: string): void {
+  // Frame oficial "clear" de Telnyx: detiene la reproducción actual y limpia la cola.
   if (ws.readyState === ws.OPEN) {
-    ws.send(JSON.stringify(msg));
-    logger.debug({ streamId }, "Clear enviado a Telnyx (barge-in workaround)");
+    ws.send(JSON.stringify({ event: "clear" }));
+    logger.debug({ streamId: _streamId }, "Clear enviado a Telnyx (barge-in)");
   }
 }
 

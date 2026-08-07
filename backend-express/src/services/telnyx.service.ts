@@ -667,7 +667,10 @@ export async function startStreaming(
         stream_bidirectional_mode: "rtp",
         stream_bidirectional_codec: "L16",
         stream_bidirectional_sampling_rate: 16000,
-        stream_bidirectional_target_legs: "opposite",
+        // Llamada de una sola pata externa: "opposite" enruta el audio a una
+        // pata inexistente y lo descarta en silencio. "self" lo reproduce en
+        // el llamante. Ver demo oficial team-telnyx/realtime-ai-demo.
+        stream_bidirectional_target_legs: "self",
         client_state: clientState,
       }),
     });

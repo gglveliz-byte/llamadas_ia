@@ -437,8 +437,9 @@ export async function procesarMensajesGemini(
   onTranscripcion?: (texto: string, rol: string, ts: number) => void,
   mensajeInicial?: string
 ): Promise<void> {
-  const inicioTurno = Date.now();
+  let inicioTurno = Date.now();
   let saludoEnviado = false;
+  let primeraRespuestaRegistrada = false;
 
   session.on("message", async (data) => {
     try {
@@ -475,7 +476,11 @@ export async function procesarMensajesGemini(
             if (mulaw8k.length === 0) continue;
             logger.info({ callSid, bytes: mulaw8k.length }, "[GEMINI API] 🔊 Audio generado por la IA enviado a Telnyx");
             enviarATelnyx(streamSid, mulaw8k);
-            registrarLatencia(Date.now() - inicioTurno);
+            // Registrar latencia solo una vez por turno (primer chunk de la respuesta)
+            if (!primeraRespuestaRegistrada) {
+              primeraRespuestaRegistrada = true;
+              registrarLatencia(Date.now() - inicioTurno);
+            }
           }
 
           // Transcripción
@@ -520,6 +525,9 @@ export async function procesarMensajesGemini(
       // Turno completo
       if (msg.serverContent?.turnComplete) {
         logger.info({ callSid, latencia: Date.now() - inicioTurno }, "Turno Gemini completado");
+        // Iniciar la medición del siguiente turno desde aquí
+        inicioTurno = Date.now();
+        primeraRespuestaRegistrada = false;
       }
     } catch (e) {
       logger.error({ error: (e as Error).message, callSid }, "Error en loop de Gemini");

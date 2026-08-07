@@ -19,15 +19,15 @@ const telnyxVoiceSchema = z.object({
   event_type: z.string(),
   payload: z.object({
     call_control_id: z.string(),
-    call_session_id: z.string().optional(),
-    call_leg_id: z.string().optional(),
-    from: z.string().optional(),
-    to: z.string().optional(),
-    direction: z.string().optional(),
-    state: z.string().optional(),
-    client_state: z.string().optional(),
-    recording_id: z.string().optional(),
-    recording_url: z.string().optional(),
+    call_session_id: z.string().nullish(),
+    call_leg_id: z.string().nullish(),
+    from: z.string().nullish(),
+    to: z.string().nullish(),
+    direction: z.string().nullish(),
+    state: z.string().nullish(),
+    client_state: z.string().nullish(),
+    recording_id: z.string().nullish(),
+    recording_url: z.string().nullish(),
   }),
 });
 
@@ -39,9 +39,11 @@ export const telnyxRouter = Router();
  * Maneja call.initiated, call.answered, call.hangup, etc.
  */
 telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
-  const parsed = telnyxVoiceSchema.safeParse(req.body);
+  // Telnyx Webhook v2 envuelve el evento en 'data', v1 lo manda directo
+  const webhookData = req.body?.data ? req.body.data : req.body;
+  const parsed = telnyxVoiceSchema.safeParse(webhookData);
   if (!parsed.success) {
-    logger.warn({ errors: parsed.error.issues }, "Webhook Telnyx con datos inválidos");
+    logger.warn({ errors: parsed.error.issues, body: req.body }, "Webhook Telnyx con datos inválidos");
     return res.status(200).send("OK");
   }
 

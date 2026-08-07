@@ -663,8 +663,6 @@ export async function startStreaming(
     body: JSON.stringify({
       stream_url: streamUrl,
       stream_track: "both_tracks",
-      stream_bidirectional_mode: "rtp",
-      stream_bidirectional_codec: "PCMU",
       client_state: clientState,
     }),
   });

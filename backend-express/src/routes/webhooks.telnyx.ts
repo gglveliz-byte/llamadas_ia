@@ -48,7 +48,7 @@ telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
   const { event_type, payload } = parsed.data;
   const { call_control_id, from, to, direction, client_state, recording_id, recording_url } = payload;
 
-  logger.info({ event_type, call_control_id, from, to, direction }, "Webhook Telnyx voz recibido");
+  logger.info({ event_type, call_control_id, from, to, direction }, `[WEBHOOK TELNYX] ---> EVENTO: ${event_type}`);
 
   // Respondemos 200 inmediatamente para que Telnyx no reintente
   res.status(200).send("OK");
@@ -57,12 +57,14 @@ telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
   (async () => {
     try {
       if (event_type === "call.initiated" && direction === "outgoing") {
+        logger.info(`[WEBHOOK TELNYX] 📞 Llamada saliente iniciada hacia ${to}. Esperando a que contesten...`);
         // Las llamadas salientes se inician con createOutboundCall.
         // El streaming se inicia al recibir call.answered.
         return;
       }
 
       if (event_type === "call.initiated" && direction === "incoming") {
+        logger.info(`[WEBHOOK TELNYX] 📞 Llamada entrante detectada desde ${from} hacia ${to}. Verificando configuración...`);
         // Buscar usuario por número destino (to)
         const phone = await db.phoneNumber.findFirst({
           where: { phoneNumber: to, isActive: true },
@@ -70,7 +72,7 @@ telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
         });
 
         if (!phone?.user) {
-          logger.warn({ to }, "Número no registrado en Telnyx");
+          logger.warn({ to }, "[WEBHOOK TELNYX] ❌ Rechazo: Número no asignado a ningún usuario activo.");
           await answerCall(call_control_id);
           await speakText(call_control_id, "Lo sentimos, este número no está configurado.");
           setTimeout(() => hangupCall(call_control_id).catch(() => {}), 8000);
@@ -78,6 +80,7 @@ telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
         }
 
         const userId = phone.user.id;
+        logger.info(`[WEBHOOK TELNYX] ✅ Número pertenece al usuario: ${userId}.`);
 
         // 1. Verificar mantenimiento global
         const mantenimiento = await db.adminConfig.findUnique({
@@ -131,6 +134,7 @@ telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
         }
 
         // 5. Todo OK - Contestar e Iniciar Streaming
+        logger.info(`[WEBHOOK TELNYX] 🟢 Todo OK. Contestando llamada entrante e iniciando streaming...`);
         // Pasamos el client_state como JSON con el userId y dirección para identificarlo después si fuera necesario
         const clientStateObj = JSON.stringify({ userId, dir: "inbound" });
         const b64State = Buffer.from(clientStateObj).toString("base64");
@@ -142,7 +146,7 @@ telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
 
         await startStreaming(call_control_id, streamUrl, b64State);
 
-        logger.info({ call_control_id, userId, streamUrl }, "Llamada contestada e iniciando stream bidireccional");
+        logger.info({ call_control_id, userId, streamUrl }, "[WEBHOOK TELNYX] 🔗 Solicitud de WebSocket (streaming_start) enviada a Telnyx.");
 
         // 6. Registrar métrica
         await db.callMetric.create({
@@ -160,6 +164,7 @@ telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
       // Para otros eventos: call.answered, call.hangup, etc.
       switch (event_type) {
         case "call.answered": {
+          logger.info(`[WEBHOOK TELNYX] 🗣️ El destino contestó la llamada. Evaluando inicio de stream...`);
           // Llamada contestada - actualizar métrica
           await db.callMetric.updateMany({
             where: { callSid: call_control_id },
@@ -169,17 +174,24 @@ telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
           // Si es llamada saliente, iniciamos streaming cuando el cliente contesta
           if (client_state) {
             const decodificado = Buffer.from(client_state, "base64").toString("utf8");
+            logger.info(`[WEBHOOK TELNYX] Estado del cliente (client_state) decodificado: ${decodificado}`);
             try {
               const stateObj = JSON.parse(decodificado);
               if (stateObj.dir === "outbound") {
                 const wsHost = process.env.DOMINIO_EXPRESS?.replace(/^https?:\/\//, "") || "localhost:3001";
                 const streamUrl = `wss://${wsHost}/stream/telnyx?user_id=${stateObj.userId}&call_control_id=${call_control_id}&dir=outbound`;
+                
+                logger.info(`[WEBHOOK TELNYX] 🚀 Iniciando streaming para llamada saliente hacia URL: ${streamUrl}`);
                 await startStreaming(call_control_id, streamUrl, client_state);
-                logger.info({ call_control_id, userId: stateObj.userId }, "Llamada saliente contestada, stream iniciado");
+                logger.info({ call_control_id, userId: stateObj.userId }, "[WEBHOOK TELNYX] 🔗 Solicitud de WebSocket enviada con éxito.");
+              } else {
+                logger.info(`[WEBHOOK TELNYX] La llamada es inbound, el streaming ya fue solicitado en call.initiated.`);
               }
             } catch {
-              // Ignorar si el client_state no es JSON
+              logger.warn("[WEBHOOK TELNYX] El client_state no es JSON válido.");
             }
+          } else {
+            logger.warn("[WEBHOOK TELNYX] No se recibió client_state en el evento call.answered.");
           }
           break;
         }

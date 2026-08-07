@@ -74,7 +74,7 @@ export async function crearSesionGemini(
 
     // We will initialize the setup message when the socket opens (handled in telnyxStream usually, but let's do it here)
     geminiWs.on("open", () => {
-      logger.info({ callSid, streamSid, userId }, "Sesión Gemini Live WebSocket abierta");
+      logger.info({ callSid, streamSid, userId }, "[GEMINI API] 🔌 Conexión WebSocket ABIERTA. Enviando mensaje de configuración (setup)...");
       const setupMsg = {
         setup: {
           model: MODELO,
@@ -445,6 +445,7 @@ export async function procesarMensajesGemini(
       // Al quedar lista la sesión, disparar el primer turno para que la IA
       // salude sin esperar a que el cliente hable.
       if (msg.setupComplete && mensajeInicial && !saludoEnviado) {
+        logger.info(`[GEMINI API] 🟢 setupComplete recibido de Google. Preparando para enviar instrucción inicial...`);
         saludoEnviado = true;
         if (session.readyState === WS.OPEN) {
           session.send(
@@ -455,7 +456,7 @@ export async function procesarMensajesGemini(
               },
             })
           );
-          logger.info({ callSid }, "Saludo inicial solicitado a Gemini");
+          logger.info({ callSid }, `[GEMINI API] 🗣️ Instrucción inicial enviada a la IA: "${mensajeInicial.substring(0, 80)}..."`);
         }
       }
 

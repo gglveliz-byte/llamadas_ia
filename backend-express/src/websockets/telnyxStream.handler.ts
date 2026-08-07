@@ -165,6 +165,7 @@ export function registrarTelnyxStreamHandler(wss: import("ws").WebSocketServer):
         case "connected":
         case "start":
           try {
+            logger.info(`[STREAM TELNYX] 🔗 Recibido evento '${mensaje.event}'. Iniciando conexión con Gemini para la llamada...`);
             await manejarStart(ws, userId, callControlId, sesion, esOutbound, mensaje);
           } catch (e) {
             logger.error({ error: (e as Error).message, callControlId }, "Error iniciando llamada Telnyx");
@@ -215,7 +216,7 @@ async function manejarStart(
   const from = mensaje?.start?.from || metric?.callerNumber || "desconocido";
   const to = mensaje?.start?.to || metric?.toNumber || "desconocido";
 
-  logger.info({ callControlId, streamId, from, to }, "Telnyx Stream start/connected processado");
+  logger.info({ callControlId, streamId, from, to }, `[STREAM TELNYX] 🚀 Evento 'start' / 'connected' procesado. streamId asignado: ${streamId}`);
 
   // Cargar settings del negocio (si no se cargó antes)
   if (!sesion.settings) {
@@ -247,6 +248,7 @@ async function manejarStart(
   }
 
   if (sesion.sesionGemini) {
+    logger.info(`[STREAM TELNYX] 🤖 Sesión de Gemini creada exitosamente. Iniciando loop de escucha de Gemini...`);
     // Iniciar loop de recepción de mensajes de Gemini
     procesarMensajesGemini(
       sesion.sesionGemini,
@@ -262,10 +264,10 @@ async function manejarStart(
         ? "[SISTEMA] El cliente acaba de contestar esta LLAMADA SALIENTE. Preséntate como el asistente del negocio, explica brevemente el motivo de la llamada y pregunta cómo puedes ayudar."
         : "[SISTEMA] La llamada acaba de conectarse. Saluda ahora al cliente siguiendo tu instrucción: preséntate con el nombre del negocio, saluda amablemente y pregunta cómo puedes ayudar."
     ).catch((e) => {
-      logger.error({ error: (e as Error).message, callControlId }, "Error en loop de Gemini");
+      logger.error({ error: (e as Error).message, callControlId }, "[STREAM TELNYX] ❌ Error en loop de procesarMensajesGemini");
     });
   } else {
-    logger.warn({ callControlId }, "Sesión Gemini no disponible - ejecutando Fallback de Audio");
+    logger.warn({ callControlId }, "[STREAM TELNYX] ⚠️ Sesión Gemini no disponible - ejecutando Fallback de Audio");
     try {
       const fallbackPath = path.join(__dirname, "../../assets/fallback_audio.txt");
       if (fs.existsSync(fallbackPath)) {

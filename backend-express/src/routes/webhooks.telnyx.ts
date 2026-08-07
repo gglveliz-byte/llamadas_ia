@@ -125,15 +125,8 @@ telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
 
         const dentroDeHorario = verificarHorario(settings);
         if (!dentroDeHorario && !settings.modo247) {
-          const horarioTexto = formatearHorarioTts(settings);
-          await answerCall(call_control_id);
-          await speakText(
-            call_control_id,
-            `Gracias por llamar. Nuestro horario de atención es ${horarioTexto}.`,
-            obtenerIdioma(settings.aiLanguage),
-            obtenerVoz(settings.aiLanguage)
-          );
-          setTimeout(() => hangupCall(call_control_id).catch(() => {}), 15000);
+          logger.info({ call_control_id, userId }, "[WEBHOOK TELNYX] Fuera de horario y modo 24/7 apagado. Colgando llamada sin contestar para evitar cobros de Telnyx.");
+          await hangupCall(call_control_id);
           return;
         }
 
@@ -319,7 +312,11 @@ function verificarHorario(settings: { businessHours: unknown; timezone: string }
       string,
       { abierto: boolean; inicio: string | null; fin: string | null }
     >;
-    const ahora = new Date();
+    const ahoraUTC = new Date();
+    const tz = settings.timezone || "America/Mexico_City";
+    const ahoraStr = ahoraUTC.toLocaleString("en-US", { timeZone: tz });
+    const ahora = new Date(ahoraStr);
+    
     const dias = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
     const diaActual = dias[ahora.getDay()];
     const horarioHoy = horario[diaActual];

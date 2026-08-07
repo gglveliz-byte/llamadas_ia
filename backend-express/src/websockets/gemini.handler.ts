@@ -131,10 +131,15 @@ function construirSystemPrompt(
 
   const recursos = settings.recursos as Array<{ id: string; nombre: string }>;
 
-  // Sanitize inputs
   const safeContexto = sanitizePrompt(contexto);
   const safeFormFields = sanitizeFormFields(settings.formFields);
   const safeRecursos = sanitizeRecursos(recursos);
+  
+  const fechaActual = new Date().toLocaleString("es-MX", { 
+    timeZone: settings.timezone || "America/Mexico_City",
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', 
+    hour: '2-digit', minute: '2-digit' 
+  });
 
   return `
 ${idiomaInstruccion}
@@ -142,11 +147,13 @@ ${idiomaInstruccion}
 ## CONTEXTO DEL NEGOCIO
 ${safeContexto}
 
+## FECHA Y HORA ACTUAL DEL NEGOCIO
+Hoy es ${fechaActual} (Zona horaria: ${settings.timezone})
+
 ## REGLAS DE AGENDAMIENTO
 - Modo: ${modoCita}
 - Horario de atención: ${horarioTexto}
-- Zona horaria: ${settings.timezone}
-- ${settings.modo247 ? "Fuera de horario: informa el horario pero NO agendes. Ofrece tomar un mensaje." : ""}
+- ${settings.modo247 ? "NOTA IMPORTANTE: Si la fecha y hora actual está fuera del horario de atención, NO AGENDES. Solo informa el horario y ofrece tomar un mensaje." : ""}
 
 ## FORMULARIO DE DATOS
 Debes recopilar: ${safeFormFields}

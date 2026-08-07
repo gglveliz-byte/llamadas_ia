@@ -26,6 +26,8 @@ const telnyxVoiceSchema = z.object({
     direction: z.string().optional(),
     state: z.string().optional(),
     client_state: z.string().optional(),
+    recording_id: z.string().optional(),
+    recording_url: z.string().optional(),
   }),
 });
 
@@ -33,8 +35,8 @@ export const telnyxRouter = Router();
 
 /**
  * POST /webhooks/telnyx/voice
- * Webhook de llamada entrante (call.initiated).
- * Valida firma, verifica saldo/horario, responde 200 y usa Call Control API.
+ * Webhook unificado para eventos de Telnyx Call Control.
+ * Maneja call.initiated, call.answered, call.hangup, etc.
  */
 telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
   const parsed = telnyxVoiceSchema.safeParse(req.body);
@@ -44,7 +46,7 @@ telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
   }
 
   const { event_type, payload } = parsed.data;
-  const { call_control_id, from, to, direction } = payload;
+  const { call_control_id, from, to, direction, client_state, recording_id, recording_url } = payload;
 
   logger.info({ event_type, call_control_id, from, to, direction }, "Webhook Telnyx voz recibido");
 
@@ -53,196 +55,173 @@ telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
 
   // Procesamos en background
   (async () => {
-    if (event_type === "call.initiated" && direction === "outgoing") {
-      // Las llamadas salientes se inician con createOutboundCall.
-      // El streaming se inicia al recibir call.answered en la ruta de /call-control.
-      return;
+    try {
+      if (event_type === "call.initiated" && direction === "outgoing") {
+        // Las llamadas salientes se inician con createOutboundCall.
+        // El streaming se inicia al recibir call.answered.
+        return;
+      }
+
+      if (event_type === "call.initiated" && direction === "incoming") {
+        // Buscar usuario por número destino (to)
+        const phone = await db.phoneNumber.findFirst({
+          where: { phoneNumber: to, isActive: true },
+          include: { user: true },
+        });
+
+        if (!phone?.user) {
+          logger.warn({ to }, "Número no registrado en Telnyx");
+          await answerCall(call_control_id);
+          await speakText(call_control_id, "Lo sentimos, este número no está configurado.");
+          setTimeout(() => hangupCall(call_control_id).catch(() => {}), 8000);
+          return;
+        }
+
+        const userId = phone.user.id;
+
+        // 1. Verificar mantenimiento global
+        const mantenimiento = await db.adminConfig.findUnique({
+          where: { clave: "mensaje_mantenimiento" },
+        });
+        if (mantenimiento?.valor) {
+          await answerCall(call_control_id);
+          await speakText(call_control_id, mantenimiento.valor);
+          setTimeout(() => hangupCall(call_control_id).catch(() => {}), 8000);
+          return;
+        }
+
+        // 2. Verificar saldo
+        const saldoOk = await verificarSaldo(userId);
+        if (!saldoOk) {
+          await answerCall(call_control_id);
+          await speakText(call_control_id, "Lo sentimos, este servicio no está disponible temporalmente.");
+          setTimeout(() => hangupCall(call_control_id).catch(() => {}), 8000);
+          return;
+        }
+
+        // 3. Verificar suspención
+        if (phone.user.isSuspended) {
+          await answerCall(call_control_id);
+          await speakText(call_control_id, "Esta cuenta está suspendida.");
+          setTimeout(() => hangupCall(call_control_id).catch(() => {}), 8000);
+          return;
+        }
+
+        // 4. Verificar horario de atención
+        const settings = await db.businessSettings.findUnique({ where: { userId } });
+        if (!settings) {
+          await answerCall(call_control_id);
+          await speakText(call_control_id, "Configuración no encontrada.");
+          setTimeout(() => hangupCall(call_control_id).catch(() => {}), 8000);
+          return;
+        }
+
+        const dentroDeHorario = verificarHorario(settings);
+        if (!dentroDeHorario && !settings.modo247) {
+          const horarioTexto = formatearHorarioTts(settings);
+          await answerCall(call_control_id);
+          await speakText(
+            call_control_id,
+            `Gracias por llamar. Nuestro horario de atención es ${horarioTexto}.`,
+            obtenerIdioma(settings.aiLanguage),
+            obtenerVoz(settings.aiLanguage)
+          );
+          setTimeout(() => hangupCall(call_control_id).catch(() => {}), 15000);
+          return;
+        }
+
+        // 5. Todo OK - Contestar e Iniciar Streaming
+        // Pasamos el client_state como JSON con el userId y dirección para identificarlo después si fuera necesario
+        const clientStateObj = JSON.stringify({ userId, dir: "inbound" });
+        const b64State = Buffer.from(clientStateObj).toString("base64");
+        
+        await answerCall(call_control_id, b64State);
+
+        const wsHost = process.env.DOMINIO_EXPRESS?.replace(/^https?:\/\//, "") || "localhost:3001";
+        const streamUrl = `wss://${wsHost}/stream/telnyx?user_id=${userId}&call_control_id=${call_control_id}&dir=inbound`;
+
+        await startStreaming(call_control_id, streamUrl, b64State);
+
+        logger.info({ call_control_id, userId, streamUrl }, "Llamada contestada e iniciando stream bidireccional");
+
+        // 6. Registrar métrica
+        await db.callMetric.create({
+          data: {
+            callSid: call_control_id,
+            userId,
+            callerNumber: from ?? null,
+            toNumber: to ?? null,
+            inicio: new Date(),
+          },
+        }).catch(() => {});
+        return; // Fin de call.initiated incoming
+      }
+
+      // Para otros eventos: call.answered, call.hangup, etc.
+      switch (event_type) {
+        case "call.answered": {
+          // Llamada contestada - actualizar métrica
+          await db.callMetric.updateMany({
+            where: { callSid: call_control_id },
+            data: { inicio: new Date() },
+          }).catch(() => {});
+
+          // Si es llamada saliente, iniciamos streaming cuando el cliente contesta
+          if (client_state) {
+            const decodificado = Buffer.from(client_state, "base64").toString("utf8");
+            try {
+              const stateObj = JSON.parse(decodificado);
+              if (stateObj.dir === "outbound") {
+                const wsHost = process.env.DOMINIO_EXPRESS?.replace(/^https?:\/\//, "") || "localhost:3001";
+                const streamUrl = `wss://${wsHost}/stream/telnyx?user_id=${stateObj.userId}&call_control_id=${call_control_id}&dir=outbound`;
+                await startStreaming(call_control_id, streamUrl, client_state);
+                logger.info({ call_control_id, userId: stateObj.userId }, "Llamada saliente contestada, stream iniciado");
+              }
+            } catch {
+              // Ignorar si el client_state no es JSON
+            }
+          }
+          break;
+        }
+
+        case "call.hangup": {
+          // Llamada finalizada - debitar, grabar, métricas
+          await handleCallHangup(call_control_id);
+          break;
+        }
+
+        case "call.recording.saved": {
+          // Grabación guardada
+          if (recording_id && recording_url) {
+            await handleRecordingSaved(call_control_id, recording_id, recording_url);
+          }
+          break;
+        }
+
+        case "call.ringing":
+        case "call.bridged":
+        case "call.unbridged":
+        case "call.playback.started":
+        case "call.playback.ended":
+        case "call.gather.ended":
+          // Eventos informativos, solo log
+          logger.debug({ event_type, call_control_id }, "Evento Call Control informativo");
+          break;
+      }
+    } catch (e) {
+      logger.error({ error: (e as Error).message, event_type, call_control_id }, "Error procesando Call Control en background");
     }
-
-    if (event_type === "call.initiated" && direction === "incoming") {
-      // Buscar usuario por número destino (to)
-      const phone = await db.phoneNumber.findFirst({
-        where: { phoneNumber: to, isActive: true },
-        include: { user: true },
-      });
-
-      if (!phone?.user) {
-        logger.warn({ to }, "Número no registrado en Telnyx");
-        await answerCall(call_control_id);
-        await speakText(call_control_id, "Lo sentimos, este número no está configurado.");
-        setTimeout(() => hangupCall(call_control_id).catch(() => {}), 8000);
-        return;
-      }
-
-      const userId = phone.user.id;
-
-      // 1. Verificar mantenimiento global
-      const mantenimiento = await db.adminConfig.findUnique({
-        where: { clave: "mensaje_mantenimiento" },
-      });
-      if (mantenimiento?.valor) {
-        await answerCall(call_control_id);
-        await speakText(call_control_id, mantenimiento.valor);
-        setTimeout(() => hangupCall(call_control_id).catch(() => {}), 8000);
-        return;
-      }
-
-      // 2. Verificar saldo
-      const saldoOk = await verificarSaldo(userId);
-      if (!saldoOk) {
-        await answerCall(call_control_id);
-        await speakText(call_control_id, "Lo sentimos, este servicio no está disponible temporalmente.");
-        setTimeout(() => hangupCall(call_control_id).catch(() => {}), 8000);
-        return;
-      }
-
-      // 3. Verificar suspención
-      if (phone.user.isSuspended) {
-        await answerCall(call_control_id);
-        await speakText(call_control_id, "Esta cuenta está suspendida.");
-        setTimeout(() => hangupCall(call_control_id).catch(() => {}), 8000);
-        return;
-      }
-
-      // 4. Verificar horario de atención
-      const settings = await db.businessSettings.findUnique({ where: { userId } });
-      if (!settings) {
-        await answerCall(call_control_id);
-        await speakText(call_control_id, "Configuración no encontrada.");
-        setTimeout(() => hangupCall(call_control_id).catch(() => {}), 8000);
-        return;
-      }
-
-      const dentroDeHorario = verificarHorario(settings);
-      if (!dentroDeHorario && !settings.modo247) {
-        const horarioTexto = formatearHorarioTts(settings);
-        await answerCall(call_control_id);
-        await speakText(
-          call_control_id,
-          `Gracias por llamar. Nuestro horario de atención es ${horarioTexto}.`,
-          obtenerIdioma(settings.aiLanguage),
-          obtenerVoz(settings.aiLanguage)
-        );
-        setTimeout(() => hangupCall(call_control_id).catch(() => {}), 15000);
-        return;
-      }
-
-      // 5. Todo OK - Contestar e Iniciar Streaming
-      // Pasamos el client_state como JSON con el userId y dirección para identificarlo después si fuera necesario
-      const clientStateObj = JSON.stringify({ userId, dir: "inbound" });
-      const b64State = Buffer.from(clientStateObj).toString("base64");
-      
-      await answerCall(call_control_id, b64State);
-
-      const wsHost = process.env.DOMINIO_EXPRESS?.replace(/^https?:\/\//, "") || "localhost:3001";
-      const streamUrl = `wss://${wsHost}/stream/telnyx?user_id=${userId}&call_control_id=${call_control_id}&dir=inbound`;
-
-      await startStreaming(call_control_id, streamUrl, b64State);
-
-      logger.info({ call_control_id, userId, streamUrl }, "Llamada contestada e iniciando stream bidireccional");
-
-      // 6. Registrar métrica
-      await db.callMetric.create({
-        data: {
-          callSid: call_control_id,
-          userId,
-          callerNumber: from ?? null,
-          toNumber: to ?? null,
-          inicio: new Date(),
-        },
-      }).catch(() => {});
-    }
-  })().catch((e) => logger.error({ error: (e as Error).message }, "Error procesando call.initiated"));
+  })();
 });
 
 /**
  * POST /webhooks/telnyx/call-control
- * Webhook de eventos Call Control (call.answered, call.hangup, etc.)
+ * Alias por compatibilidad.
  */
-const callControlSchema = z.object({
-  event_type: z.string(),
-  payload: z.object({
-    call_control_id: z.string(),
-    call_session_id: z.string().optional(),
-    call_leg_id: z.string().optional(),
-    client_state: z.string().optional(),
-    recording_id: z.string().optional(),
-    recording_url: z.string().optional(),
-  }),
-});
-
-telnyxRouter.post("/call-control", validarFirmaTelnyx, async (req, res) => {
-  const parsed = callControlSchema.safeParse(req.body);
-  if (!parsed.success) {
-    logger.warn({ errors: parsed.error.issues }, "Call Control webhook con datos inválidos");
-    return res.status(200).send("OK");
-  }
-
-  const { event_type, payload } = parsed.data;
-  const { call_control_id, recording_id, recording_url, client_state } = payload;
-
-  logger.info({ event_type, call_control_id }, "Call Control event recibido");
-
-  try {
-    switch (event_type) {
-      case "call.answered": {
-        // Llamada contestada - actualizar métrica
-        await db.callMetric.updateMany({
-          where: { callSid: call_control_id },
-          data: { inicio: new Date() },
-        }).catch(() => {});
-
-        // Si es llamada saliente, iniciamos streaming cuando el cliente contesta
-        if (client_state) {
-          const decodificado = Buffer.from(client_state, "base64").toString("utf8");
-          try {
-             const stateObj = JSON.parse(decodificado);
-             if (stateObj.dir === "outbound") {
-               const wsHost = process.env.DOMINIO_EXPRESS?.replace(/^https?:\/\//, "") || "localhost:3001";
-               const streamUrl = `wss://${wsHost}/stream/telnyx?user_id=${stateObj.userId}&call_control_id=${call_control_id}&dir=outbound`;
-               await startStreaming(call_control_id, streamUrl, client_state);
-               logger.info({ call_control_id, userId: stateObj.userId }, "Llamada saliente contestada, stream iniciado");
-             }
-          } catch {
-             // Ignorar si el client_state no es JSON
-          }
-        }
-        break;
-      }
-
-      case "call.hangup": {
-        // Llamada finalizada - debitar, grabar, métricas
-        await handleCallHangup(call_control_id);
-        break;
-      }
-
-      case "call.recording.saved": {
-        // Grabación guardada
-        if (recording_id && recording_url) {
-          await handleRecordingSaved(call_control_id, recording_id, recording_url);
-        }
-        break;
-      }
-
-      case "call.initiated":
-      case "call.ringing":
-      case "call.bridged":
-      case "call.unbridged":
-      case "call.playback.started":
-      case "call.playback.ended":
-      case "call.gather.ended":
-        // Eventos informativos, solo log
-        logger.debug({ event_type, call_control_id }, "Evento Call Control");
-        break;
-
-      default:
-        logger.info({ event_type }, "Evento Call Control no manejado");
-    }
-  } catch (e) {
-    logger.error({ error: (e as Error).message, event_type, call_control_id }, "Error procesando Call Control");
-  }
-
-  res.status(200).send("OK");
+telnyxRouter.post("/call-control", validarFirmaTelnyx, (req, res) => {
+  // Redirigir internamente al mismo manejador enviando una redirección 307
+  // O simplemente re-invocar la lógica copiando. Aquí usaremos un redirect 307
+  res.redirect(307, "/webhooks/telnyx/voice");
 });
 
 async function handleCallHangup(callControlId: string): Promise<void> {

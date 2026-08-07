@@ -23,6 +23,7 @@ const TITULOS: Record<Seccion, string> = {
   recargas: "Recargas y Wallet",
   configuracion: "Configuración",
   simulador: "Configuración del Negocio",
+  salientes: "Llamadas Salientes",
   "admin-clientes": "Admin · Clientes",
   "admin-tarifas": "Admin · Tarifas",
   "admin-metricas": "Admin · Métricas del Sistema",

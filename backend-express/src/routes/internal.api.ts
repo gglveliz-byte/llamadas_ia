@@ -18,11 +18,12 @@ import {
   assignNumberToConnection,
   configureNumberWebhooks,
   getAvailableNumberByPhone,
-  getOwnedNumberByPhone
+  getOwnedNumberByPhone,
+  createOutboundCall
 } from "../services/telnyx.service";
 import { enviarEmail, emailTemplates } from "../services/email.service";
 import { encrypt } from "../utils/encryption";
-import { saldoPermiteCobro, debitarConcepto, reversarConcepto } from "../services/billing.service";
+import { saldoPermiteCobro, debitarConcepto, reversarConcepto, verificarSaldo } from "../services/billing.service";
 import { procesarRentasUsuario } from "../services/rentas.service";
 
 export const internalRouter = Router();
@@ -438,6 +439,63 @@ internalRouter.post("/rentas/procesar-usuario", async (req, res) => {
   } catch (e) {
     logger.error({ error: (e as Error).message }, "Error procesando rentas del usuario");
     res.status(500).json({ error: "Error interno" });
+  }
+});
+
+/**
+ * POST /internal/telnyx/outbound-call
+ * Inicia una llamada saliente: el cliente contesta y la IA toma el control.
+ * Body: { userId, from, to }
+ */
+const outboundCallSchema = z.object({
+  userId: z.string().uuid(),
+  from: z.string().min(7).max(20),
+  to: z.string().min(7).max(20),
+});
+
+internalRouter.post("/telnyx/outbound-call", async (req, res) => {
+  const parsed = outboundCallSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Datos inválidos" });
+  }
+  const { userId, from, to } = parsed.data;
+
+  const numero = await db.phoneNumber.findFirst({
+    where: { userId, phoneNumber: from, isActive: true },
+  });
+  if (!numero) {
+    return res.status(400).json({ error: "El número de origen no es tuyo o no está activo." });
+  }
+
+  if (!(await verificarSaldo(userId))) {
+    return res.status(402).json({ error: "Saldo insuficiente para iniciar una llamada saliente." });
+  }
+
+  try {
+    const webhookUrl = `${process.env.DOMINIO_EXPRESS}/webhooks/telnyx/voice`;
+    const { callControlId } = await createOutboundCall({
+      from,
+      to,
+      webhookUrl,
+      clientState: userId,
+    });
+
+    await db.callMetric
+      .create({
+        data: {
+          callSid: callControlId,
+          userId,
+          callerNumber: from,
+          toNumber: to,
+          inicio: new Date(),
+        },
+      })
+      .catch(() => {});
+
+    res.json({ ok: true, callControlId });
+  } catch (e) {
+    logger.error({ error: (e as Error).message }, "Error iniciando llamada saliente");
+    res.status(500).json({ error: "Error iniciando llamada: " + (e as Error).message });
   }
 });
 

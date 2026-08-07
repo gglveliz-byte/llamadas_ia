@@ -280,6 +280,35 @@ export async function purchasePhoneNumber(
 }
 
 /**
+ * Crea una llamada saliente vía Call Control.
+ * POST /v2/calls. El webhook de voz recibe direction=outgoing y
+ * client_state con el userId para enrutar la sesión de IA.
+ */
+export async function createOutboundCall(params: {
+  from: string;
+  to: string;
+  webhookUrl: string;
+  clientState: string;
+}): Promise<{ callControlId: string }> {
+  const body: Record<string, unknown> = {
+    connection_id: process.env.TELNYX_CONNECTION_ID,
+    from: params.from,
+    to: params.to,
+    webhook_url: params.webhookUrl,
+    // Telnyx exige client_state en base64 (error 90017 si no)
+    client_state: Buffer.from(params.clientState).toString("base64"),
+  };
+
+  const data = await telnyxFetch<{ data: TelnyxCallControl }>("/calls", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+  logger.info({ from: params.from, to: params.to }, "Llamada saliente creada en Telnyx");
+  return { callControlId: data.data.call_control_id };
+}
+
+/**
  * Libera (elimina) un número en Telnyx. Desde ese momento Telnyx
  * deja de cobrar la renta mensual del número.
  * DELETE /v2/phone_numbers/{id}
@@ -397,19 +426,22 @@ export function generateInboundTeXML(params: {
   language?: string;
   voice?: string;
   consentMessage?: string;
+  dir?: "inbound" | "outbound";
 }): string {
-  const { streamUrl, callControlId, userId, language = "es", voice = "neural-es-ES", consentMessage } = params;
+  const { streamUrl, callControlId, userId, language = "es", voice = "neural-es-ES", consentMessage, dir = "inbound" } = params;
 
   const consentXml = consentMessage
     ? `<Speak voice="${voice}" language="${language}">${escapeXml(consentMessage)}</Speak>`
     : "";
+
+  const dirParam = dir === "outbound" ? "&dir=outbound" : "";
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   ${consentXml}
   <Dial>
     <Stream
-      url="${streamUrl}?user_id=${encodeURIComponent(userId)}&call_control_id=${encodeURIComponent(callControlId)}"
+      url="${streamUrl}?user_id=${encodeURIComponent(userId)}&call_control_id=${encodeURIComponent(callControlId)}${dirParam}"
       bidirectional="true"
       audio_track="inbound"
       content_type="audio/x-mulaw;rate=8000"

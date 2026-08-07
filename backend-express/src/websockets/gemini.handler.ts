@@ -46,7 +46,8 @@ export type SesionGemini = WS;
 export async function crearSesionGemini(
   userId: string,
   callSid: string,
-  streamSid: string
+  streamSid: string,
+  modo: "inbound" | "outbound" = "inbound"
 ): Promise<SesionGemini | null> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -63,7 +64,7 @@ export async function crearSesionGemini(
     return null;
   }
 
-  const systemPrompt = construirSystemPrompt(contexto, settings, callSid);
+  const systemPrompt = construirSystemPrompt(contexto, settings, callSid, modo);
   const herramientas = obtenerHerramientas();
   const aiVoice = settings.aiVoice || "Puck";
 
@@ -115,7 +116,8 @@ function construirSystemPrompt(
   settings: NonNullable<
     Awaited<ReturnType<typeof db.businessSettings.findUnique>>
   >,
-  callSid: string
+  callSid: string,
+  modo: "inbound" | "outbound" = "inbound"
 ): string {
   const idiomaInstruccion = obtenerInstruccionIdioma(settings.aiLanguage);
   const horarioTexto = formatearHorario(
@@ -161,9 +163,11 @@ ${safeRecursos}
 - Cuando vayas a usar una herramienta, ANTES di una frase breve y natural para cubrir la espera, variando entre sinónimos: "Un momento, por favor", "Permíteme un segundo", "Dame un instante para verificarlo". Después retoma la conversación con el resultado.
 - Responde las consultas normales (servicios, precios, horarios, políticas) directamente desde el CONTEXTO DEL NEGOCIO, sin usar herramientas. Úsalas SOLO para consultar disponibilidad, agendar o cancelar citas.
 - Cuando recibas el aviso de que la llamada se conectó, saluda PRIMERO tú, antes de esperar a que el cliente hable.${
-    settings.mensajeSaludo
-      ? ` Di exactamente este saludo (con tu voz y tono naturales): "${sanitizePrompt(settings.mensajeSaludo, 500)}"`
-      : " Preséntate con el nombre del negocio, saluda amablemente y pregunta cómo puedes ayudar."
+    modo === "outbound"
+      ? " ESTA ES UNA LLAMADA SALIENTE: el cliente contestó tu llamada. Preséntate como el asistente del negocio, explica brevemente el motivo (confirmación, seguimiento o información) y pregunta cómo puedes ayudar."
+      : settings.mensajeSaludo
+        ? ` Di exactamente este saludo (con tu voz y tono naturales): "${sanitizePrompt(settings.mensajeSaludo, 500)}"`
+        : " Preséntate con el nombre del negocio, saluda amablemente y pregunta cómo puedes ayudar."
   }
 - ID de llamada actual: ${callSid}
     `.trim();

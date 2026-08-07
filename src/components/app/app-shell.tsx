@@ -11,6 +11,7 @@ import { CitasSection } from "@/components/sections/citas";
 import { RecargasSection } from "@/components/sections/recargas";
 import { ConfiguracionSection } from "@/components/sections/configuracion";
 import { SimuladorSection } from "@/components/sections/simulador";
+import { SalientesSection } from "@/components/sections/salientes";
 import { AdminClientesSection } from "@/components/sections/admin-clientes";
 import { AdminTarifasSection } from "@/components/sections/admin-tarifas";
 import { AdminMetricasSection } from "@/components/sections/admin-metricas";
@@ -139,6 +140,8 @@ export function AppShell() {
         return esCliente ? <ConfiguracionSection /> : <NoAccess />;
       case "simulador":
         return esCliente ? <SimuladorSection /> : <NoAccess />;
+      case "salientes":
+        return esCliente ? <SalientesSection /> : <NoAccess />;
       case "admin-clientes":
         return usuario.role === "admin" ? <AdminClientesSection /> : <NoAccess />;
       case "admin-tarifas":

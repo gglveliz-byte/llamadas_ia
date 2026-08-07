@@ -48,6 +48,40 @@ telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
 
   logger.info({ event_type, call_control_id, from, to, direction }, "Webhook Telnyx voz recibido");
 
+  // Llamadas salientes: el dueño las inicia desde el panel; conectamos el
+  // stream de la IA con dir=outbound para el saludo/prompt saliente.
+  if (event_type === "call.initiated" && direction === "outgoing") {
+    // client_state viaja en base64 (requisito de Telnyx): decodificar a userId
+    let userId: string | undefined;
+    if (client_state) {
+      const decodificado = Buffer.from(client_state, "base64").toString("utf8");
+      userId = /^[0-9a-fA-F-]{36}$/.test(decodificado) ? decodificado : client_state;
+    }
+    if (!userId) {
+      logger.warn({ call_control_id }, "Llamada saliente sin client_state");
+      return res.status(200).send("OK");
+    }
+
+    const saldoOk = await verificarSaldo(userId);
+    if (!saldoOk) {
+      return res.type("application/xml").send(
+        generateRejectionTeXML("Lo sentimos, saldo insuficiente para completar la llamada.")
+      );
+    }
+
+    const wsHost = process.env.DOMINIO_EXPRESS?.replace(/^https?:\/\//, "") || "localhost:3001";
+    const streamUrl = `wss://${wsHost}/stream/telnyx`;
+    const texml = generateInboundTeXML({
+      streamUrl,
+      callControlId: call_control_id,
+      userId,
+      dir: "outbound",
+    });
+
+    logger.info({ call_control_id, userId }, "TeXML saliente generado - conectando stream");
+    return res.type("application/xml").send(texml);
+  }
+
   // Solo procesamos llamadas entrantes
   if (event_type !== "call.initiated" || direction !== "incoming") {
     logger.info({ event_type, direction }, "Evento no procesado (no es call.initiated incoming)");

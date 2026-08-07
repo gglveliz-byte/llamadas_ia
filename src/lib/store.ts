@@ -9,6 +9,7 @@ export type Seccion =
   | "recargas"
   | "configuracion"
   | "simulador"
+  | "salientes"
   | "admin-clientes"
   | "admin-tarifas"
   | "admin-metricas"

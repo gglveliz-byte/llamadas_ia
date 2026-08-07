@@ -100,6 +100,7 @@ export function registrarTelnyxStreamHandler(wss: import("ws").WebSocketServer):
     const url = new URL(req.url || "", "http://localhost");
     const userId = url.searchParams.get("user_id");
     const callControlId = url.searchParams.get("call_control_id");
+    const esOutbound = url.searchParams.get("dir") === "outbound";
 
     if (!userId || !callControlId) {
       logger.error({ url: req.url }, "WebSocket Telnyx sin user_id o call_control_id");
@@ -158,7 +159,7 @@ export function registrarTelnyxStreamHandler(wss: import("ws").WebSocketServer):
       switch (mensaje.event) {
         case "start":
           try {
-            await manejarStart(ws, mensaje as StreamStartMessage, userId, callControlId, sesion);
+            await manejarStart(ws, mensaje as StreamStartMessage, userId, callControlId, sesion, esOutbound);
           } catch (e) {
             logger.error({ error: (e as Error).message, callControlId }, "Error iniciando llamada Telnyx");
           }
@@ -195,7 +196,8 @@ async function manejarStart(
   mensaje: StreamStartMessage,
   userId: string,
   callControlId: string,
-  sesion: SesionLlamada
+  sesion: SesionLlamada,
+  esOutbound = false
 ): Promise<void> {
   const streamId = mensaje.start.stream_id;
   sesion.streamId = streamId;
@@ -219,9 +221,14 @@ async function manejarStart(
     iniciarBufferLlamada(callControlId);
   }
 
-  // Crear sesión Gemini
+  // Crear sesión Gemini (modo saliente si la llamada la inició el dueño)
   try {
-    sesion.sesionGemini = await crearSesionGemini(userId, callControlId, streamId);
+    sesion.sesionGemini = await crearSesionGemini(
+      userId,
+      callControlId,
+      streamId,
+      esOutbound ? "outbound" : "inbound"
+    );
   } catch (e) {
     logger.error({ error: (e as Error).message, callControlId }, "Error creando sesión Gemini");
   }
@@ -238,7 +245,9 @@ async function manejarStart(
         enviarATelnyx(ws, sid, audio);
       },
       (texto, rol, ts) => sesion.transcripts.push({ texto, rol, ts }),
-      "[SISTEMA] La llamada acaba de conectarse. Saluda ahora al cliente siguiendo tu instrucción: preséntate con el nombre del negocio, saluda amablemente y pregunta cómo puedes ayudar."
+      esOutbound
+        ? "[SISTEMA] El cliente acaba de contestar esta LLAMADA SALIENTE. Preséntate como el asistente del negocio, explica brevemente el motivo de la llamada y pregunta cómo puedes ayudar."
+        : "[SISTEMA] La llamada acaba de conectarse. Saluda ahora al cliente siguiendo tu instrucción: preséntate con el nombre del negocio, saluda amablemente y pregunta cómo puedes ayudar."
     ).catch((e) => {
       logger.error({ error: (e as Error).message, callControlId }, "Error en loop de Gemini");
     });

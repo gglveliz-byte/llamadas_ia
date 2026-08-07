@@ -19,6 +19,7 @@ import {
   LogOut,
   ChevronDown,
   Phone,
+  PhoneOutgoing,
 } from "lucide-react";
 import { useAppStore, type Seccion } from "@/lib/store";
 import { Button } from "@/components/ui/button";
@@ -47,6 +48,7 @@ const NAV_ITEMS: SidebarItem[] = [
   { id: "citas", label: "Citas", icon: CalendarDays, rol: "cliente" },
   { id: "recargas", label: "Recargas", icon: Wallet, rol: "cliente" },
   { id: "simulador", label: "Configuración del Negocio", icon: Mic, rol: "cliente" },
+  { id: "salientes", label: "Llamar", icon: PhoneOutgoing, rol: "cliente" },
   { id: "configuracion", label: "Configuración", icon: Settings, rol: "cliente" },
   { id: "admin-clientes", label: "Clientes", icon: Users, rol: "admin" },
   { id: "admin-tarifas", label: "Tarifas", icon: Tag, rol: "admin" },

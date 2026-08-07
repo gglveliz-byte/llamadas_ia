@@ -35,7 +35,7 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
   return originalFetch(input, init);
 };
 
-const MODELO = process.env.GEMINI_MODEL || "models/gemini-3.1-flash-live-preview";
+const MODELO = process.env.GEMINI_MODEL || "models/gemini-2.0-flash-exp";
 
 export type SesionGemini = WS;
 

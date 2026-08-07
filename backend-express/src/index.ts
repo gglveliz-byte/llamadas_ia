@@ -31,7 +31,7 @@ import { verificarFfmpegDisponible } from "./utils/audioTranscoder";
 import { verificarSMTP } from "./services/email.service";
 import { verificarVad } from "./services/vad.service";
 
-const PORT = 3001;
+const PORT = parseInt(process.env.PORT || "3001", 10);
 
 const app = express();
 

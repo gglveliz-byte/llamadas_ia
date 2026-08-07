@@ -10,7 +10,28 @@ import type { Request, Response, NextFunction } from "express";
 import crypto from "crypto";
 import { logger } from "../utils/logger";
 
-const PUBLIC_KEY = process.env.TELNYX_PUBLIC_KEY;
+const PUBLIC_KEY = buildPublicKey(process.env.TELNYX_PUBLIC_KEY);
+
+function buildPublicKey(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  // Si ya es PEM, devolverlo tal cual
+  if (raw.includes("-----BEGIN")) {
+    return raw.replace(/\\n/g, "\n");
+  }
+  // Si es base64 raw (32 bytes = clave Ed25519), wraperla en PEM con el
+  // prefijo DER estándar para Ed25519 SubjectPublicKeyInfo
+  try {
+    const keyBytes = Buffer.from(raw, "base64");
+    if (keyBytes.length === 32) {
+      // Ed25519 SPKI DER prefix: 302a300506032b6570032100
+      const derPrefix = Buffer.from("302a300506032b6570032100", "hex");
+      const spki = Buffer.concat([derPrefix, keyBytes]);
+      const pem = `-----BEGIN PUBLIC KEY-----\n${spki.toString("base64")}\n-----END PUBLIC KEY-----`;
+      return pem;
+    }
+  } catch {}
+  return raw;
+}
 
 export interface TelnyxSignatureParts {
   timestamp: string;
@@ -71,7 +92,8 @@ export function validarFirmaTelnyx(req: Request, res: Response, next: NextFuncti
     return;
   }
 
-  const signatureHeader = req.headers["telnyx-signature-ed25519"] as string | undefined;
+  const rawSigHeader = req.headers["telnyx-signature-ed25519"];
+  const signatureHeader = Array.isArray(rawSigHeader) ? rawSigHeader[0] : (rawSigHeader as string | undefined);
 
   if (!signatureHeader) {
     logger.warn("Webhook Telnyx sin header Telnyx-Signature-Ed25519");
@@ -84,7 +106,11 @@ export function validarFirmaTelnyx(req: Request, res: Response, next: NextFuncti
     req.headers["telnyx-timestamp"] as string | undefined
   );
   if (!parsed) {
-    logger.warn({ header: signatureHeader }, "Formato de firma Telnyx inválido");
+    logger.warn({
+      header: signatureHeader,
+      timestampHeader: req.headers["telnyx-timestamp"],
+      allHeaders: Object.keys(req.headers).filter(h => h.includes("telnyx") || h.includes("webhook")),
+    }, "Formato de firma Telnyx inválido");
     res.status(401).json({ error: "Formato de firma inválido" });
     return;
   }

@@ -21,6 +21,12 @@ services:
         sync: false
       - key: TELNYX_ORG_ID
         sync: false
+      - key: TELNYX_CONNECTION_ID
+        sync: false
+      - key: TELNYX_WEBHOOK_URL
+        sync: false
+      - key: PORT
+        value: "3001"
       - key: TELNYX_WEBHOOK_SECRET
         sync: false
       - key: WHOP_API_KEY

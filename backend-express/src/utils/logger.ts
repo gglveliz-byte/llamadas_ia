@@ -47,6 +47,9 @@ if (isDev) {
     ignore: "pid,hostname",
   });
   streams.unshift({ stream: pretty });
+} else {
+  // En producción, también escribir a process.stdout para que Render los capture
+  streams.unshift({ stream: process.stdout });
 }
 
 export const logger = pino(

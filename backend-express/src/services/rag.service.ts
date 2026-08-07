@@ -75,7 +75,7 @@ export async function obtenerContextoRAG(
     const results = (await db.$queryRawUnsafe(
       `SELECT "rawContext", 1 - (embedding <=> $1::vector) AS similitud
        FROM business_memory
-       WHERE "userId" = $2 AND status = 'activo'
+       WHERE "userId" = $2::uuid AND status = 'activo'
        ORDER BY embedding <=> $1::vector
        LIMIT 3`,
       vectorStr,

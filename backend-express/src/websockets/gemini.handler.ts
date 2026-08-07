@@ -465,6 +465,7 @@ export async function procesarMensajesGemini(
           // Audio de respuesta
           if (part.inlineData && part.inlineData.mimeType?.startsWith("audio")) {
             const mulaw8k = await transcodificarGeminiATelefonía(part.inlineData.data);
+            logger.info({ callSid, bytes: mulaw8k.length }, "[GEMINI API] 🔊 Audio generado por la IA enviado a Telnyx");
             enviarATelnyx(streamSid, mulaw8k);
             registrarLatencia(Date.now() - inicioTurno);
           }
@@ -479,6 +480,7 @@ export async function procesarMensajesGemini(
           // Function Call
           if (part.functionCall) {
             const { name, args } = part.functionCall;
+            logger.info({ callSid, name }, `[GEMINI API] 🛠️ Herramienta solicitada por la IA: ${name}`);
             const resultado = await ejecutarHerramienta(
               name,
               args as Record<string, unknown>,

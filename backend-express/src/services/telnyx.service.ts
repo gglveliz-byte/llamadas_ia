@@ -657,13 +657,15 @@ export async function startStreaming(
   callControlId: string,
   streamUrl: string,
   clientState?: string
-): Promise<void> {
+): Promise<boolean> {
   try {
     await telnyxFetch(`/calls/${callControlId}/actions/streaming_start`, {
       method: "POST",
       body: JSON.stringify({
         stream_url: streamUrl,
-        stream_track: "both_tracks",
+        // Llamada entrante de una sola pata: "inbound_track" entrega el audio
+        // del llamante al WebSocket. Ver demo oficial team-telnyx/realtime-ai-demo.
+        stream_track: "inbound_track",
         stream_bidirectional_mode: "rtp",
         stream_bidirectional_codec: "L16",
         stream_bidirectional_sampling_rate: 16000,
@@ -674,13 +676,14 @@ export async function startStreaming(
         client_state: clientState,
       }),
     });
+    return true;
   } catch (e) {
     // Race benigna de teardown: el llamante colgó antes de completarse el
     // streaming, o el stream ya estaba activo. No es un error real.
     const msg = (e as Error).message;
     if (msg.includes("90018") || msg.includes("Only one input stream") || msg.includes("already ended")) {
       logger.warn({ callControlId, error: msg }, "startStreaming ignorado (llamada ya finalizada o stream activo)");
-      return;
+      return false;
     }
     throw e;
   }

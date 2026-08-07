@@ -440,6 +440,7 @@ export async function procesarMensajesGemini(
   let inicioTurno = Date.now();
   let saludoEnviado = false;
   let primeraRespuestaRegistrada = false;
+  let tsPrimerAudio = 0;
 
   session.on("message", async (data) => {
     try {
@@ -479,7 +480,10 @@ export async function procesarMensajesGemini(
             // Registrar latencia solo una vez por turno (primer chunk de la respuesta)
             if (!primeraRespuestaRegistrada) {
               primeraRespuestaRegistrada = true;
-              registrarLatencia(Date.now() - inicioTurno);
+              tsPrimerAudio = Date.now();
+              const primerAudioMs = tsPrimerAudio - inicioTurno;
+              logger.info({ callSid, primerAudioMs }, "Primer audio de respuesta (Gemini)");
+              registrarLatencia(primerAudioMs);
             }
           }
 
@@ -524,10 +528,22 @@ export async function procesarMensajesGemini(
 
       // Turno completo
       if (msg.serverContent?.turnComplete) {
-        logger.info({ callSid, latencia: Date.now() - inicioTurno }, "Turno Gemini completado");
+        const ahoraTurno = Date.now();
+        const turnoTotalMs = ahoraTurno - inicioTurno;
+        const primerAudioMs = tsPrimerAudio ? tsPrimerAudio - inicioTurno : null;
+        logger.info(
+          {
+            callSid,
+            turnoTotalMs,
+            primerAudioMs,
+            gapAudioATurnoMs: primerAudioMs != null ? ahoraTurno - tsPrimerAudio : null,
+          },
+          "Turno Gemini completado"
+        );
         // Iniciar la medición del siguiente turno desde aquí
         inicioTurno = Date.now();
         primeraRespuestaRegistrada = false;
+        tsPrimerAudio = 0;
       }
     } catch (e) {
       logger.error({ error: (e as Error).message, callSid }, "Error en loop de Gemini");

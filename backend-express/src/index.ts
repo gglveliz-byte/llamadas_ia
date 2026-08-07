@@ -29,7 +29,7 @@ import { rateLimiter } from "./middleware/rateLimiter";
 import { logger } from "./utils/logger";
 import { getAudioTranscoder } from "./utils/audioTranscoder";
 import { verificarSMTP } from "./services/email.service";
-import { verificarVad } from "./services/vad.service";
+import { verificarVad, prewarmSileroVAD } from "./services/vad.service";
 
 const PORT = parseInt(process.env.PORT || "3001", 10);
 
@@ -220,6 +220,10 @@ server.listen(PORT, () => {
     logger.error({ error: (e as Error).message }, "Error verificando SMTP");
   });
   verificarVad();
+  // Pre-cargar la sesión ONNX de Silero VAD al boot (fuera del path de llamada)
+  prewarmSileroVAD().catch((e) =>
+    logger.error({ error: (e as Error).message }, "Error precargando Silero VAD al boot")
+  );
 
   // Verificar configuración
   if (!process.env.GEMINI_API_KEY) {

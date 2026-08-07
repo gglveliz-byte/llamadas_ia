@@ -172,8 +172,12 @@ telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
             const streamUrl = `wss://${wsHost}/stream/telnyx?user_id=${pendingInbound.userId}&call_control_id=${call_control_id}&dir=inbound`;
             
             logger.info(`[WEBHOOK TELNYX] 🚀 Iniciando streaming diferido (inbound) hacia URL: ${streamUrl}`);
-            await startStreaming(call_control_id, streamUrl, pendingInbound.b64State);
-            logger.info({ call_control_id, userId: pendingInbound.userId }, "[WEBHOOK TELNYX] 🔗 Solicitud de WebSocket (streaming_start) enviada con éxito.");
+            const exito = await startStreaming(call_control_id, streamUrl, pendingInbound.b64State);
+            if (exito) {
+              logger.info({ call_control_id, userId: pendingInbound.userId }, "[WEBHOOK TELNYX] 🔗 streaming_start solicitado con éxito.");
+            } else {
+              logger.warn({ call_control_id, userId: pendingInbound.userId }, "[WEBHOOK TELNYX] ⚠️ streaming_start falló (llamada ya finalizada o stream activo).");
+            }
           } else if (client_state) {
             // Si es llamada saliente u otra lógica que envíe client_state
             const decodificado = Buffer.from(client_state, "base64").toString("utf8");
@@ -184,8 +188,12 @@ telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
               const streamUrl = `wss://${wsHost}/stream/telnyx?user_id=${stateObj.userId}&call_control_id=${call_control_id}&dir=${stateObj.dir || "inbound"}`;
               
               logger.info(`[WEBHOOK TELNYX] 🚀 Iniciando streaming para llamada (${stateObj.dir || "inbound"}) hacia URL: ${streamUrl}`);
-              await startStreaming(call_control_id, streamUrl, client_state);
-              logger.info({ call_control_id, userId: stateObj.userId }, "[WEBHOOK TELNYX] 🔗 Solicitud de WebSocket (streaming_start) enviada con éxito.");
+              const exito = await startStreaming(call_control_id, streamUrl, client_state);
+              if (exito) {
+                logger.info({ call_control_id, userId: stateObj.userId }, "[WEBHOOK TELNYX] 🔗 streaming_start solicitado con éxito.");
+              } else {
+                logger.warn({ call_control_id, userId: stateObj.userId }, "[WEBHOOK TELNYX] ⚠️ streaming_start falló (llamada ya finalizada o stream activo).");
+              }
             } catch {
               logger.warn("[WEBHOOK TELNYX] El client_state no es JSON válido.");
             }

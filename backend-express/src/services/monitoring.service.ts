@@ -98,8 +98,8 @@ Uptime: ${Math.floor(metrica.uptime / 60)} min`;
       // Emitir SSE a todos los admins conectados
       emitirSSEAdmin("alerta_sistema", { metrica, umbrales, mensaje });
 
-      // Enviar email al admin
-      await enviarAlertaAdmin(mensaje);
+      // Enviar email al admin (fire-and-forget: no bloquear el tick de 10s)
+      enviarAlertaAdmin(mensaje).catch(() => {});
     }
   }, 10000);
 
@@ -129,7 +129,7 @@ async function obtenerUmbrales(): Promise<{ cpu: number; ram: number; latencia: 
   return {
     cpu: parseFloat(cpu?.valor ?? "85"),
     ram: parseFloat(ram?.valor ?? "90"),
-    latencia: parseInt(lat?.valor ?? "600"),
+    latencia: parseInt(lat?.valor ?? "2500"),
   };
 }
 

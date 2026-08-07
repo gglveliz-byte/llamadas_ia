@@ -18,6 +18,9 @@ function getTransporter(): nodemailer.Transporter | null {
     host: process.env.SMTP_HOST || "smtp.gmail.com",
     port: parseInt(process.env.SMTP_PORT || "587"),
     secure: false,
+    connectionTimeout: 3000,
+    greetingTimeout: 5000,
+    socketTimeout: 5000,
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
@@ -41,7 +44,7 @@ export async function verificarSMTP(): Promise<boolean> {
     logger.info("SMTP configurado y operativo");
     return true;
   } catch (e) {
-    logger.error({ error: (e as Error).message }, "SMTP configurado pero no pudo conectar");
+    logger.warn({ error: (e as Error).message }, "SMTP configurado pero no pudo conectar");
     return false;
   }
 }

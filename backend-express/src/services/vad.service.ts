@@ -6,12 +6,93 @@
  * Telnyx envía frames de 20ms μ-law 8kHz (160 muestras PCM) — tamaño exacto
  * que WebRTC VAD espera (10/20/30ms @ 8kHz).
  */
+import * as fs from "fs";
+import * as path from "path";
+import * as ort from "onnxruntime-node";
 import vadFactory, { type WebrtcVadModule } from "@ennuicastr/webrtcvad.js";
-import { RealTimeVAD } from "@ericedouard/vad-node-realtime";
+import {
+  RealTimeVAD,
+  getDefaultRealTimeVADOptions,
+  type RealTimeVADOptions,
+} from "@ericedouard/vad-node-realtime";
 import { logger } from "../utils/logger";
 import { db } from "../models/database.pool";
 
 const UMBRAL_ENERGIA_DBFS = -40;
+
+/**
+ * Sesión ONNX de Silero VAD compartida entre todas las llamadas.
+ * La librería @ericedouard/vad-node-realtime crea un InferenceSession nuevo en
+ * cada RealTimeVAD.new() (~1.4s/llamada). Reutilizando la sesión ahorramos esa
+ * carga; cada llamada mantiene su propio tensor de estado (stateN), así que es
+ * seguro ante concurrencia (session.run es thread-safe en onnxruntime-node).
+ */
+interface SesionSileroCompartida {
+  session: ort.InferenceSession;
+  sr: ort.Tensor;
+}
+
+let promesaSesionSilero: Promise<SesionSileroCompartida> | null = null;
+
+function obtenerRutaModeloV5(): string {
+  const entrada = require.resolve("@ericedouard/vad-node-realtime");
+  return path.join(path.dirname(entrada), "silero_vad_v5.onnx");
+}
+
+export function prewarmSileroVAD(): Promise<SesionSileroCompartida> {
+  if (!promesaSesionSilero) {
+    promesaSesionSilero = (async () => {
+      const data = await fs.promises.readFile(obtenerRutaModeloV5());
+      const session = await ort.InferenceSession.create(data.buffer);
+      const sr = new ort.Tensor("int64", [16000n]);
+      logger.info("Silero VAD (ONNX v5) precargado - sesión compartida lista");
+      return { session, sr };
+    })().catch((e) => {
+      promesaSesionSilero = null;
+      logger.error({ error: (e as Error).message }, "Error precargando Silero VAD");
+      throw e;
+    });
+  }
+  return promesaSesionSilero;
+}
+
+/**
+ * Replica el modelo SileroV5 de la librería pero compartiendo la sesión ONNX
+ * (cargada una vez al boot). El estado recurrente es por-instancia.
+ */
+function crearModeloSileroV5(shared: SesionSileroCompartida) {
+  const getNewState = () => {
+    const zeroes = Array(2 * 128).fill(0);
+    return new ort.Tensor("float32", zeroes, [2, 1, 128]);
+  };
+  let state: ort.Tensor = getNewState();
+  return {
+    process: async (audioFrame: Float32Array) => {
+      const t = new ort.Tensor("float32", audioFrame, [1, audioFrame.length]);
+      const out = await shared.session.run({
+        input: t,
+        state,
+        sr: shared.sr,
+      });
+      state = out["stateN"] as ort.Tensor;
+      const [isSpeech] = (out["output"] as ort.Tensor).data as unknown as number[];
+      return { isSpeech, notSpeech: 1 - isSpeech };
+    },
+    reset_state: () => {
+      state = getNewState();
+    },
+  };
+}
+
+/**
+ * El constructor de RealTimeVAD es protected; un subclass permite inyectar un
+ * modelInstance construido sobre la sesión ONNX compartida.
+ */
+class RealTimeVADConSesionCompartida extends RealTimeVAD {
+  constructor(options: RealTimeVADOptions, modelInstance: any) {
+    super(options, modelInstance);
+  }
+}
 
 export class VADAccumulator {
   private buffer = new Float32Array(0);
@@ -291,7 +372,7 @@ export async function crearSileroVAD(
   try {
     const config = await vadConfigManager.getConfig();
 
-    const vad = await RealTimeVAD.new({
+    const opcionesCallbacks = {
       positiveSpeechThreshold: config.vad_base_threshold || 0.65,
       redemptionFrames: config.vad_min_frames ? config.vad_min_frames * 5 : 20, // Approx ~100-600ms
       sampleRate, // la librería re-muestrea a 16k internamente
@@ -299,10 +380,27 @@ export async function crearSileroVAD(
       onSpeechEnd,
       onVADMisfire: onVADMisfire ?? (() => {}),
       onFrameProcessed: onFrameProcessed ?? (() => {}),
-    });
-    
-    vad.start();
-    return new VADAccumulator(vad);
+    };
+
+    // Primero intentar la sesión ONNX compartida (precargada al boot) para no
+    // pagar la carga del modelo (~1.4s) en cada llamada.
+    try {
+      const shared = await prewarmSileroVAD();
+      const vad = new RealTimeVADConSesionCompartida(
+        { ...getDefaultRealTimeVADOptions("v5"), ...opcionesCallbacks },
+        crearModeloSileroV5(shared)
+      );
+      vad.start();
+      return new VADAccumulator(vad);
+    } catch (e) {
+      logger.error(
+        { error: (e as Error).message },
+        "Sesión Silero compartida no disponible - usando carga estándar"
+      );
+      const vad = await RealTimeVAD.new(opcionesCallbacks);
+      vad.start();
+      return new VADAccumulator(vad);
+    }
   } catch (e) {
     logger.error({ error: (e as Error).message }, "Error cargando Silero VAD, fallback...");
     return null;

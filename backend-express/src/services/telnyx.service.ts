@@ -658,18 +658,29 @@ export async function startStreaming(
   streamUrl: string,
   clientState?: string
 ): Promise<void> {
-  await telnyxFetch(`/calls/${callControlId}/actions/streaming_start`, {
-    method: "POST",
-    body: JSON.stringify({
-      stream_url: streamUrl,
-      stream_track: "both_tracks",
-      stream_bidirectional_mode: "rtp",
-      stream_bidirectional_codec: "PCMU",
-      stream_bidirectional_sampling_rate: 8000,
-      stream_bidirectional_target_legs: "opposite",
-      client_state: clientState,
-    }),
-  });
+  try {
+    await telnyxFetch(`/calls/${callControlId}/actions/streaming_start`, {
+      method: "POST",
+      body: JSON.stringify({
+        stream_url: streamUrl,
+        stream_track: "both_tracks",
+        stream_bidirectional_mode: "rtp",
+        stream_bidirectional_codec: "PCMU",
+        stream_bidirectional_sampling_rate: 8000,
+        stream_bidirectional_target_legs: "opposite",
+        client_state: clientState,
+      }),
+    });
+  } catch (e) {
+    // Race benigna de teardown: el llamante colgó antes de completarse el
+    // streaming, o el stream ya estaba activo. No es un error real.
+    const msg = (e as Error).message;
+    if (msg.includes("90018") || msg.includes("Only one input stream") || msg.includes("already ended")) {
+      logger.warn({ callControlId, error: msg }, "startStreaming ignorado (llamada ya finalizada o stream activo)");
+      return;
+    }
+    throw e;
+  }
 }
 
 /**

@@ -310,6 +310,7 @@ async function manejarStart(
   // La librería solo acepta native >= 16kHz, así que el audio Telnyx (μ-law 8kHz)
   // se up-sampla a 16kHz antes de alimentar el VAD (ver manejarMedia).
   const cerrarTurno = () => {
+    if (!sesion.isSpeaking) return;
     if (sesion.timeoutFinTurno) {
       clearTimeout(sesion.timeoutFinTurno);
       sesion.timeoutFinTurno = null;
@@ -356,7 +357,7 @@ async function manejarStart(
         if (sesion.timeoutFinTurno) {
           clearTimeout(sesion.timeoutFinTurno);
         }
-        sesion.timeoutFinTurno = setTimeout(cerrarTurno, 900);
+        sesion.timeoutFinTurno = setTimeout(cerrarTurno, 1400);
       }
     }
   );

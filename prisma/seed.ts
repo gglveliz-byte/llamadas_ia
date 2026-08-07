@@ -25,7 +25,7 @@ async function main() {
     { clave: "vad_ai_speaking_window", valor: "250", descripcion: "Milisegundos de inmunidad anti-eco tras hablar la IA" },
     { clave: "vad_negative_threshold", valor: "0.45", descripcion: "Umbral negativo de Silero VAD para declarar silencio [0.0 - 1.0]" },
     { clave: "gemini_prefix_pad_ms", valor: "250", descripcion: "Pre-padding de audio antes del inicio de palabra en el auto-VAD de Gemini (ms)" },
-    { clave: "gemini_silence_ms", valor: "600", descripcion: "Silencio requerido por Gemini para cerrar el turno del usuario (ms)" },
+    { clave: "gemini_silence_ms", valor: "400", descripcion: "Silencio requerido por Gemini para cerrar el turno del usuario (ms)" },
     { clave: "flujo_audio", valor: "continuo", descripcion: "continuo = todo el audio fluye a Gemini (barge-in nativo); gated = gate anti-ruido con pre-roll 250ms" },
     { clave: "dias_gracia_liberacion", valor: "5", descripcion: "Días de gracia tras suspender un número por renta impagada antes de liberarlo en Telnyx" },
     { clave: "precio_alta_numero", valor: "1.00", descripcion: "Precio por defecto de activación de número cuando Telnyx no reporta costo (USD)" },

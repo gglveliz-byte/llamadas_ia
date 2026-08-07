@@ -162,7 +162,7 @@ export class VadConfigManager {
     vad_ai_speaking_window: 250,
     vad_negative_threshold: 0.45,
     gemini_prefix_pad_ms: 250,
-    gemini_silence_ms: 600,
+    gemini_silence_ms: 400,
     flujo_audio: "continuo",
   };
   private lastFetch: number = 0;

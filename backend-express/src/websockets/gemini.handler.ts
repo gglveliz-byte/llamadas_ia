@@ -486,7 +486,7 @@ export async function procesarMensajesGemini(
           if (part.inlineData && part.inlineData.mimeType?.startsWith("audio")) {
             const mulaw8k = await transcodificarGeminiATelefonía(part.inlineData.data);
             if (mulaw8k.length === 0) continue;
-            logger.info({ callSid, bytes: mulaw8k.length }, "[GEMINI API] 🔊 Audio generado por la IA enviado a Telnyx");
+            logger.debug({ callSid, bytes: mulaw8k.length }, "[GEMINI API] 🔊 Audio generado por la IA enviado a Telnyx");
             enviarATelnyx(streamSid, mulaw8k);
             // Registrar latencia solo una vez por turno (primer chunk de la respuesta)
             if (!primeraRespuestaRegistrada) {

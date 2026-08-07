@@ -163,16 +163,16 @@ export function registrarTelnyxStreamHandler(wss: import("ws").WebSocketServer):
       }
 
       switch (mensaje.event) {
-        case "connected":
         case "start":
           try {
-            if (!sesion.streamId) {
-              // Set immediately to prevent race conditions with incoming concurrent 'start' event
+            if (!sesion.streamId || sesion.streamId.startsWith("v3:")) {
               sesion.streamId = (mensaje as any)?.start?.stream_id || callControlId;
-              logger.info(`[STREAM TELNYX] 🔗 Recibido evento '${mensaje.event}'. Iniciando conexión con Gemini para la llamada...`);
-              await manejarStart(ws, userId, callControlId, sesion, esOutbound, mensaje);
-            } else {
-              logger.info(`[STREAM TELNYX] 🔗 Recibido evento '${mensaje.event}' pero Gemini ya estaba inicializado. Ignorando.`);
+              
+              // Evitar doble inicialización de Gemini
+              if (!sesion.sesionGemini) {
+                logger.info(`[STREAM TELNYX] 🔗 Recibido evento 'start'. Iniciando conexión con Gemini para la llamada...`);
+                await manejarStart(ws, userId, callControlId, sesion, esOutbound, mensaje);
+              }
             }
           } catch (e) {
             logger.error({ error: (e as Error).message, callControlId }, "Error iniciando llamada Telnyx");

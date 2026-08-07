@@ -84,6 +84,8 @@ interface SesionLlamada {
   ultimaActividadGemini: number;
   isSpeaking: boolean;
   bargeInDetectado: boolean;
+  ultimaActividadVoz: number;
+  timeoutFinTurno: ReturnType<typeof setTimeout> | null;
   grabacionActiva: boolean;
   finalizada: boolean;
   transcripts: Array<{ texto: string; rol: string; ts: number }>;
@@ -141,6 +143,8 @@ export function registrarTelnyxStreamHandler(wss: import("ws").WebSocketServer):
       ultimaActividadGemini: Date.now(),
       isSpeaking: false,
       bargeInDetectado: false,
+      ultimaActividadVoz: Date.now(),
+      timeoutFinTurno: null,
       grabacionActiva: settings?.grabacionActiva ?? false,
       finalizada: false,
       transcripts: [],
@@ -162,10 +166,13 @@ export function registrarTelnyxStreamHandler(wss: import("ws").WebSocketServer):
       }
 
       switch (mensaje.event) {
+        case "connected":
+          logger.info({ version: (mensaje as any)?.version }, "Telnyx stream connected");
+          break;
         case "start":
           try {
             if (!sesion.streamId || sesion.streamId.startsWith("v3:")) {
-              sesion.streamId = (mensaje as any)?.start?.stream_id || callControlId;
+              sesion.streamId = (mensaje as any)?.stream_id || (mensaje as any)?.start?.stream_id || callControlId;
               
               // Evitar doble inicialización de Gemini
               if (!sesion.sesionGemini) {
@@ -214,8 +221,8 @@ async function manejarStart(
   esOutbound = false,
   mensaje?: any
 ): Promise<void> {
-  // Para TeXML es start.stream_id, para Call Control no hay streamId.
-  const streamId = mensaje?.start?.stream_id || callControlId;
+  // Telnyx envía stream_id al nivel raíz del evento start; fallback a callControlId.
+  const streamId = mensaje?.stream_id || mensaje?.start?.stream_id || callControlId;
   sesion.streamId = streamId;
 
   const metric = await db.callMetric.findFirst({ where: { callSid: callControlId }});
@@ -302,6 +309,18 @@ async function manejarStart(
   // Detector de voz (Silero VAD) para barge-in preciso y filtrado de ruido.
   // La librería solo acepta native >= 16kHz, así que el audio Telnyx (μ-law 8kHz)
   // se up-sampla a 16kHz antes de alimentar el VAD (ver manejarMedia).
+  const cerrarTurno = () => {
+    if (sesion.timeoutFinTurno) {
+      clearTimeout(sesion.timeoutFinTurno);
+      sesion.timeoutFinTurno = null;
+    }
+    sesion.isSpeaking = false;
+    if (sesion.sesionGemini?.readyState === 1) {
+      logger.info({ callControlId }, "🛑 Fin de turno de usuario -> IA procesando respuesta (Telnyx)");
+      sesion.sesionGemini.send(JSON.stringify({ clientContent: { turns: [], turnComplete: true } }));
+    }
+  };
+
   sesion.detectorVoz = await crearSileroVAD(
     () => {
       if (sesion.guard?.debeIgnorarSpeechStart()) {
@@ -310,21 +329,36 @@ async function manejarStart(
       }
       sesion.guard?.registrarInterrupcion();
       sesion.isSpeaking = true;
-      if (sesion.sesionGemini?.readyState === 1) {
+      // Solo interrumpir a la IA si realmente está hablando; si aún no emite
+      // audio (p.ej. generando el saludo), no cancelar su turno.
+      if (sesion.guard?.iaHablando() && sesion.sesionGemini?.readyState === 1) {
         logger.info({ callControlId }, "🎤 Usuario empezó a hablar (Silero ML) -> Interrumpiendo IA (Telnyx)");
         sesion.sesionGemini.send(JSON.stringify({ clientContent: { turns: [], turnComplete: false } }));
         // Limpiar buffer de Telnyx (barge-in real)
         enviarClearATelnyx(ws, sesion.streamId);
+      } else {
+        logger.info({ callControlId }, "🎤 Usuario empezó a hablar (Silero ML)");
       }
     },
+    cerrarTurno,
+    16000,
     () => {
-      sesion.isSpeaking = false;
-      if (sesion.sesionGemini?.readyState === 1) {
-        logger.info({ callControlId }, "🛑 Usuario terminó de hablar (Silero ML) -> IA procesando respuesta (Telnyx)");
-        sesion.sesionGemini.send(JSON.stringify({ clientContent: { turns: [], turnComplete: true } }));
-      }
+      // Frase demasiado corta para ser SpeechEnd: cerrar el turno igualmente
+      // para que la IA responda (ej. "¿Aló?").
+      logger.debug({ callControlId }, "VAD misfire (frase corta) -> cerrando turno");
+      cerrarTurno();
     },
-    16000
+    (probs) => {
+      if (probs?.isSpeech >= (sesion.vadBase ?? 0.62)) {
+        sesion.ultimaActividadVoz = Date.now();
+        // Respaldo: si el ruido de red impide el onSpeechEnd, cerrar el turno
+        // poco después de la última actividad de voz.
+        if (sesion.timeoutFinTurno) {
+          clearTimeout(sesion.timeoutFinTurno);
+        }
+        sesion.timeoutFinTurno = setTimeout(cerrarTurno, 900);
+      }
+    }
   );
 
   // Notificar al dueño
@@ -469,6 +503,10 @@ async function finalizarLlamada(callControlId: string, sesion: SesionLlamada): P
   } catch (e) {
     logger.error({ error: (e as Error).message, callControlId }, "Error finalizando llamada Telnyx");
   } finally {
+    if (sesion.timeoutFinTurno) {
+      clearTimeout(sesion.timeoutFinTurno);
+      sesion.timeoutFinTurno = null;
+    }
     sesion.detectorVoz?.liberar();
     sesion.detectorVoz = null;
     sesionesActivas.delete(callControlId);

@@ -284,7 +284,9 @@ export function tieneVozPorEnergia(pcm16BitBuffer: Buffer, umbralDbfs: number = 
 export async function crearSileroVAD(
   onSpeechStart: () => void,
   onSpeechEnd: () => void,
-  sampleRate: number = 16000
+  sampleRate: number = 16000,
+  onVADMisfire?: () => void,
+  onFrameProcessed?: (probs: { isSpeech: number; isSilence?: number }, frame: Float32Array) => void
 ): Promise<VADAccumulator | null> {
   try {
     const config = await vadConfigManager.getConfig();
@@ -294,7 +296,9 @@ export async function crearSileroVAD(
       redemptionFrames: config.vad_min_frames ? config.vad_min_frames * 5 : 20, // Approx ~100-600ms
       sampleRate, // la librería re-muestrea a 16k internamente
       onSpeechStart,
-      onSpeechEnd
+      onSpeechEnd,
+      onVADMisfire: onVADMisfire ?? (() => {}),
+      onFrameProcessed: onFrameProcessed ?? (() => {}),
     });
     
     vad.start();

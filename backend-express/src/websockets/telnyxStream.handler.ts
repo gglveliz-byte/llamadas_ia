@@ -59,7 +59,12 @@ interface StreamDtmfMessage {
   stream_id: string;
 }
 
-type StreamMessage = StreamStartMessage | StreamMediaMessage | StreamStopMessage | StreamDtmfMessage;
+interface StreamConnectedMessage {
+  event: "connected";
+  version?: string;
+}
+
+type StreamMessage = StreamStartMessage | StreamMediaMessage | StreamStopMessage | StreamDtmfMessage | StreamConnectedMessage;
 
 interface TranscriptLinea {
   texto: string;
@@ -125,7 +130,7 @@ export function registrarTelnyxStreamHandler(wss: import("ws").WebSocketServer):
 
     const sesion: SesionLlamada = {
       callControlId,
-      streamId: "", // se llena en start
+      streamId: "", // se llena en start o connected
       userId,
       inicio: Date.now(),
       sesionGemini: null,
@@ -157,9 +162,10 @@ export function registrarTelnyxStreamHandler(wss: import("ws").WebSocketServer):
       }
 
       switch (mensaje.event) {
+        case "connected":
         case "start":
           try {
-            await manejarStart(ws, mensaje as StreamStartMessage, userId, callControlId, sesion, esOutbound);
+            await manejarStart(ws, userId, callControlId, sesion, esOutbound, mensaje);
           } catch (e) {
             logger.error({ error: (e as Error).message, callControlId }, "Error iniciando llamada Telnyx");
           }
@@ -173,6 +179,8 @@ export function registrarTelnyxStreamHandler(wss: import("ws").WebSocketServer):
         case "dtmf":
           logger.info({ digit: (mensaje as StreamDtmfMessage).dtmf.digit, callControlId }, "DTMF Telnyx recibido");
           break;
+        default:
+          logger.debug({ event: (mensaje as any).event }, "Evento WebSocket Telnyx ignorado");
       }
     });
 
@@ -193,16 +201,21 @@ export function registrarTelnyxStreamHandler(wss: import("ws").WebSocketServer):
 
 async function manejarStart(
   ws: WebSocket,
-  mensaje: StreamStartMessage,
   userId: string,
   callControlId: string,
   sesion: SesionLlamada,
-  esOutbound = false
+  esOutbound = false,
+  mensaje?: any
 ): Promise<void> {
-  const streamId = mensaje.start.stream_id;
+  // Para TeXML es start.stream_id, para Call Control no hay streamId.
+  const streamId = mensaje?.start?.stream_id || callControlId;
   sesion.streamId = streamId;
 
-  logger.info({ callControlId, streamId, from: mensaje.start.from, to: mensaje.start.to }, "Telnyx Stream start");
+  const metric = await db.callMetric.findFirst({ where: { callSid: callControlId }});
+  const from = mensaje?.start?.from || metric?.callerNumber || "desconocido";
+  const to = mensaje?.start?.to || metric?.toNumber || "desconocido";
+
+  logger.info({ callControlId, streamId, from, to }, "Telnyx Stream start/connected processado");
 
   // Cargar settings del negocio (si no se cargó antes)
   if (!sesion.settings) {
@@ -450,11 +463,13 @@ async function finalizarLlamada(callControlId: string, sesion: SesionLlamada): P
 
 // Helpers para enviar mensajes a Telnyx
 function enviarATelnyx(ws: WebSocket, streamId: string, audioBase64: string): void {
-  const msg = {
+  const msg: any = {
     event: "media",
-    stream_id: streamId,
     media: { payload: audioBase64 },
   };
+  if (streamId && !streamId.startsWith("v3:")) {
+    msg.stream_id = streamId;
+  }
   if (ws.readyState === ws.OPEN) {
     ws.send(JSON.stringify(msg));
   }
@@ -463,11 +478,13 @@ function enviarATelnyx(ws: WebSocket, streamId: string, audioBase64: string): vo
 function enviarClearATelnyx(ws: WebSocket, streamId: string): void {
   // Telnyx no tiene evento "clear" nativo, enviamos media vacía o usamos fork_stop
   // Como workaround, enviamos media vacía para limpiar buffer
-  const msg = {
+  const msg: any = {
     event: "media",
-    stream_id: streamId,
     media: { payload: "" },
   };
+  if (streamId && !streamId.startsWith("v3:")) {
+    msg.stream_id = streamId;
+  }
   if (ws.readyState === ws.OPEN) {
     ws.send(JSON.stringify(msg));
     logger.debug({ streamId }, "Clear enviado a Telnyx (barge-in workaround)");

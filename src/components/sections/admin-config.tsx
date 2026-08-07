@@ -29,6 +29,9 @@ const VAD_SLIDERS: Record<string, { min: number; max: number; step: number }> = 
   vad_noise_boost: { min: 0.0, max: 0.5, step: 0.01 },
   vad_ignore_audio_until: { min: 0, max: 2000, step: 50 },
   vad_ai_speaking_window: { min: 0, max: 1000, step: 10 },
+  vad_negative_threshold: { min: 0.0, max: 1.0, step: 0.01 },
+  gemini_prefix_pad_ms: { min: 0, max: 1000, step: 25 },
+  gemini_silence_ms: { min: 100, max: 2000, step: 50 },
 };
 
 export function AdminConfigSection() {
@@ -91,7 +94,9 @@ export function AdminConfigSection() {
     "Alertas": configs.filter((c) =>
       ["alerta_cpu_porcentaje", "alerta_ram_porcentaje", "alerta_latencia_ms", "email_admin_alertas"].includes(c.clave)
     ),
-    "Sensibilidad de Interrupción (VAD)": configs.filter((c) => c.clave.startsWith("vad_")),
+    "Conversación (VAD y turnos)": configs.filter((c) =>
+      c.clave.startsWith("vad_") || c.clave.startsWith("gemini_") || c.clave === "flujo_audio"
+    ),
   };
 
   if (loading) {
@@ -136,9 +141,10 @@ export function AdminConfigSection() {
                   estos umbrales cada 10 segundos y envía email + SSE al admin si se exceden.
                 </CardDescription>
               )}
-              {nombre === "Sensibilidad de Interrupción (VAD)" && (
+              {nombre === "Conversación (VAD y turnos)" && (
                 <CardDescription className="text-xs">
-                  Ajustes en vivo del modelo Silero VAD para el Voice Activity Detection y Anti-Eco.
+                  Ajustes en vivo del modelo Silero VAD, del auto-VAD nativo de Gemini
+                  y del flujo de audio (continuo / gated).
                 </CardDescription>
               )}
             </CardHeader>

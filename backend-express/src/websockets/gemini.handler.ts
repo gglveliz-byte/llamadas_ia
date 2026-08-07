@@ -7,6 +7,7 @@ import { transcodificarGeminiATelefonía } from "../utils/audioTranscoder";
 import { emitirSSE } from "../sse/events.emitter";
 import { registrarLatencia, enviarAlertaAdmin } from "../services/monitoring.service";
 import { actualizarRateLimitGemini } from "../services/ratelimit.service";
+import { vadConfigManager } from "../services/vad.service";
 import { logger } from "../utils/logger";
 
 // URL base de la API de Gemini para detectar requests a interceptar
@@ -67,6 +68,9 @@ export async function crearSesionGemini(
   const systemPrompt = construirSystemPrompt(contexto, settings, callSid, modo);
   const herramientas = obtenerHerramientas();
   const aiVoice = settings.aiVoice || "Puck";
+  const vadCfg = await vadConfigManager.getConfig();
+  const prefixPadMs = Number(vadCfg.gemini_prefix_pad_ms) || 250;
+  const silenceMs = Number(vadCfg.gemini_silence_ms) || 600;
 
   try {
     const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${apiKey}`;
@@ -89,7 +93,14 @@ export async function crearSesionGemini(
             }
           },
           systemInstruction: { parts: [{ text: systemPrompt }] },
-          tools: [{ functionDeclarations: herramientas[0].functionDeclarations }]
+          tools: [{ functionDeclarations: herramientas[0].functionDeclarations }],
+          realtimeInputConfig: {
+            automaticActivityDetection: {
+              prefixPaddingMs: prefixPadMs,
+              silenceDurationMs: silenceMs,
+            },
+            activityHandling: "START_OF_ACTIVITY_INTERRUPTS",
+          }
         }
       };
       geminiWs.send(JSON.stringify(setupMsg));

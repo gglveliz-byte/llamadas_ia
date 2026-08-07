@@ -154,12 +154,16 @@ export class VADAccumulator {
  * y los mantiene cacheados en memoria para acceso ultra-rápido durante el streaming.
  */
 export class VadConfigManager {
-  private configCache: Record<string, number> = {
+  private configCache: Record<string, number | string> = {
     vad_base_threshold: 0.62,
     vad_min_frames: 3,
     vad_noise_boost: 0.15,
     vad_ignore_audio_until: 500,
     vad_ai_speaking_window: 250,
+    vad_negative_threshold: 0.45,
+    gemini_prefix_pad_ms: 250,
+    gemini_silence_ms: 600,
+    flujo_audio: "continuo",
   };
   private lastFetch: number = 0;
   private readonly CACHE_TTL_MS = 10000; // 10s
@@ -169,11 +173,21 @@ export class VadConfigManager {
     if (now - this.lastFetch > this.CACHE_TTL_MS) {
       try {
         const dbConfigs = await db.adminConfig.findMany({
-          where: { clave: { startsWith: "vad_" } },
+          where: {
+            OR: [
+              { clave: { startsWith: "vad_" } },
+              { clave: { startsWith: "gemini_" } },
+              { clave: "flujo_audio" },
+            ],
+          },
         });
         for (const c of dbConfigs) {
-          const val = parseFloat(c.valor);
-          if (!isNaN(val)) this.configCache[c.clave] = val;
+          const num = parseFloat(c.valor);
+          if (!isNaN(num)) {
+            this.configCache[c.clave] = num;
+          } else {
+            this.configCache[c.clave] = c.valor;
+          }
         }
         this.lastFetch = now;
       } catch (error) {
@@ -373,8 +387,9 @@ export async function crearSileroVAD(
     const config = await vadConfigManager.getConfig();
 
     const opcionesCallbacks = {
-      positiveSpeechThreshold: config.vad_base_threshold || 0.65,
-      redemptionFrames: config.vad_min_frames ? config.vad_min_frames * 5 : 20, // Approx ~100-600ms
+      positiveSpeechThreshold: Number(config.vad_base_threshold) || 0.65,
+      negativeSpeechThreshold: Number(config.vad_negative_threshold) || 0.45,
+      redemptionFrames: Number(config.vad_min_frames) ? Number(config.vad_min_frames) * 5 : 20, // Approx ~100-600ms
       sampleRate, // la librería re-muestrea a 16k internamente
       onSpeechStart,
       onSpeechEnd,

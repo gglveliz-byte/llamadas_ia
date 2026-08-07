@@ -83,7 +83,9 @@ interface SesionLlamada {
   vadBoost: number;
   ultimaActividadGemini: number;
   isSpeaking: boolean;
-  bargeInDetectado: boolean;
+  flujoAudio: string;
+  preRoll: Buffer[];
+  preRollBytes: number;
   ultimaActividadVoz: number;
   timeoutFinTurno: ReturnType<typeof setTimeout> | null;
   grabacionActiva: boolean;
@@ -97,6 +99,10 @@ interface SesionLlamada {
 }
 
 const sesionesActivas = new Map<string, SesionLlamada>();
+
+// Pre-roll de ~250ms de PCM16 16kHz (250ms * 16000 muestras/s * 2 bytes) para
+// el modo "gated": se vacía al detectar habla para no perder el arranque.
+const PRE_ROLL_MAX_BYTES = 250 * 16000 * 2 / 1000;
 
 /**
  * Registra el handler en el WebSocket server.
@@ -142,7 +148,9 @@ export function registrarTelnyxStreamHandler(wss: import("ws").WebSocketServer):
       vadBoost: 0.15,
       ultimaActividadGemini: Date.now(),
       isSpeaking: false,
-      bargeInDetectado: false,
+      flujoAudio: "continuo",
+      preRoll: [],
+      preRollBytes: 0,
       ultimaActividadVoz: Date.now(),
       timeoutFinTurno: null,
       grabacionActiva: settings?.grabacionActiva ?? false,
@@ -299,11 +307,12 @@ async function manejarStart(
 
   // Guardia anti-eco/sordera con la sensibilidad configurada en el panel admin
   const vadCfg = await vadConfigManager.getConfig();
-  sesion.vadBase = vadCfg.vad_base_threshold || 0.62;
-  sesion.vadBoost = vadCfg.vad_noise_boost ?? 0.15;
+  sesion.vadBase = Number(vadCfg.vad_base_threshold) || 0.62;
+  sesion.vadBoost = Number(vadCfg.vad_noise_boost) ?? 0.15;
+  sesion.flujoAudio = (vadCfg.flujo_audio as string) || "continuo";
   sesion.guard = new BargeInGuard(
-    vadCfg.vad_ai_speaking_window ?? 250,
-    vadCfg.vad_ignore_audio_until ?? 500
+    Number(vadCfg.vad_ai_speaking_window) ?? 250,
+    Number(vadCfg.vad_ignore_audio_until) ?? 500
   );
 
   // Detector de voz (Silero VAD) para barge-in preciso y filtrado de ruido.
@@ -316,6 +325,8 @@ async function manejarStart(
       sesion.timeoutFinTurno = null;
     }
     sesion.isSpeaking = false;
+    sesion.preRoll = [];
+    sesion.preRollBytes = 0;
     if (sesion.sesionGemini?.readyState === 1) {
       logger.info({ callControlId }, "🛑 Fin de turno de usuario -> IA procesando respuesta (Telnyx)");
       sesion.sesionGemini.send(JSON.stringify({ clientContent: { turns: [], turnComplete: true } }));
@@ -330,15 +341,13 @@ async function manejarStart(
       }
       sesion.guard?.registrarInterrupcion();
       sesion.isSpeaking = true;
-      // Solo interrumpir a la IA si realmente está hablando; si aún no emite
-      // audio (p.ej. generando el saludo), no cancelar su turno.
-      if (sesion.guard?.iaHablando() && sesion.sesionGemini?.readyState === 1) {
+      // Interrupción incondicional (receta del simulador): corta el turno de la
+      // IA y limpia el buffer de reproducción. El audio real ya fluye a Gemini
+      // (modo continuo), así que su auto-VAD retomará el turno al callar.
+      if (sesion.sesionGemini?.readyState === 1) {
         logger.info({ callControlId }, "🎤 Usuario empezó a hablar (Silero ML) -> Interrumpiendo IA (Telnyx)");
         sesion.sesionGemini.send(JSON.stringify({ clientContent: { turns: [], turnComplete: false } }));
-        // Limpiar buffer de Telnyx (barge-in real)
         enviarClearATelnyx(ws, sesion.streamId);
-      } else {
-        logger.info({ callControlId }, "🎤 Usuario empezó a hablar (Silero ML)");
       }
     },
     cerrarTurno,
@@ -414,27 +423,44 @@ async function manejarMedia(
     sesion.detectorVoz.process(float32);
   }
 
-  // Filtro estricto: Si Silero VAD determina que no hay voz, NO enviamos el audio a Gemini.
-  // Esto aísla a la IA completamente del ruido de fondo de la llamada.
-  if (!sesion.isSpeaking) {
-    return;
-  }
-
-  // Enviar a Gemini como input en tiempo real
-  try {
-    if (sesion.sesionGemini.readyState === 1) { // 1 = OPEN
-      sesion.sesionGemini.send(JSON.stringify({
-        realtimeInput: {
-          audio: {
-            mimeType: "audio/pcm;rate=16000",
-            data: pcm16k.toString("base64")
+  // Envío a Gemini como input en tiempo real.
+  // flujo_audio="continuo" (default): TODO el audio del llamante fluye a Gemini;
+  // su auto-VAD + barge-in nativo detectan la interrupción y el fin de palabra
+  // (igual que el simulador, que manda todo el audio sin gate).
+  // flujo_audio="gated": respaldo anti-ruido; buffer pre-roll de ~250ms que se
+  // vacía al detectar habla para no perder el arranque de la palabra.
+  const enviarA = (buffer: Buffer) => {
+    try {
+      if (sesion.sesionGemini.readyState === 1) { // 1 = OPEN
+        sesion.sesionGemini.send(JSON.stringify({
+          realtimeInput: {
+            audio: {
+              mimeType: "audio/pcm;rate=16000",
+              data: buffer.toString("base64")
+            }
           }
-        }
-      }));
+        }));
+      }
+      sesion.ultimaActividadGemini = Date.now();
+    } catch (e) {
+      logger.error({ error: (e as Error).message, callControlId }, "Error enviando audio a Gemini");
     }
-    sesion.ultimaActividadGemini = Date.now();
-  } catch (e) {
-    logger.error({ error: (e as Error).message, callControlId }, "Error enviando audio a Gemini");
+  };
+
+  if (sesion.flujoAudio === "gated") {
+    sesion.preRoll.push(pcm16k);
+    sesion.preRollBytes += pcm16k.length;
+    while (sesion.preRollBytes > PRE_ROLL_MAX_BYTES && sesion.preRoll.length > 0) {
+      sesion.preRollBytes -= sesion.preRoll.shift()!.length;
+    }
+    if (sesion.isSpeaking) {
+      while (sesion.preRoll.length > 0) {
+        enviarA(sesion.preRoll.shift()!);
+      }
+      sesion.preRollBytes = 0;
+    }
+  } else {
+    enviarA(pcm16k);
   }
 }
 

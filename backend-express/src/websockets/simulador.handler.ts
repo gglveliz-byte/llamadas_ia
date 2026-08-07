@@ -143,11 +143,11 @@ export function registrarSimuladorHandler(wss: WebSocketServer): void {
     // SIN await: un await aquí cedería el event loop y el "iniciar" que el
     // cliente envía al abrir llegaría antes de registrar ws.on("message").
     vadConfigManager.getConfig().then((vadCfg) => {
-      sesion.vadBase = vadCfg.vad_base_threshold || 0.62;
-      sesion.vadBoost = vadCfg.vad_noise_boost ?? 0.15;
+      sesion.vadBase = Number(vadCfg.vad_base_threshold) || 0.62;
+      sesion.vadBoost = Number(vadCfg.vad_noise_boost) ?? 0.15;
       sesion.guard = new BargeInGuard(
-        vadCfg.vad_ai_speaking_window ?? 250,
-        vadCfg.vad_ignore_audio_until ?? 500
+        Number(vadCfg.vad_ai_speaking_window) ?? 250,
+        Number(vadCfg.vad_ignore_audio_until) ?? 500
       );
       return crearSileroVAD(
       () => {

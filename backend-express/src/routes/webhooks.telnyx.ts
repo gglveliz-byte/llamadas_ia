@@ -31,6 +31,8 @@ const telnyxVoiceSchema = z.object({
   }),
 });
 
+const pendingInboundStreams = new Map<string, { userId: string; b64State: string }>();
+
 export const telnyxRouter = Router();
 
 /**
@@ -142,6 +144,7 @@ telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
         const b64State = Buffer.from(clientStateObj).toString("base64");
         
         // Solo contestar aquí. El streaming se iniciará en el evento call.answered para evitar race conditions en Telnyx
+        pendingInboundStreams.set(call_control_id, { userId, b64State });
         await answerCall(call_control_id, b64State);
         logger.info({ call_control_id, userId }, "[WEBHOOK TELNYX] Llamada contestada. Esperando evento call.answered para iniciar stream...");
 
@@ -168,8 +171,18 @@ telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
             data: { inicio: new Date() },
           }).catch(() => {});
 
-          // Si es llamada saliente, iniciamos streaming cuando el cliente contesta
-          if (client_state) {
+          // Revisar si tenemos streaming pendiente para inbound
+          const pendingInbound = pendingInboundStreams.get(call_control_id);
+          if (pendingInbound) {
+            pendingInboundStreams.delete(call_control_id);
+            const wsHost = process.env.DOMINIO_EXPRESS?.replace(/^https?:\/\//, "") || "localhost:3001";
+            const streamUrl = `wss://${wsHost}/stream/telnyx?user_id=${pendingInbound.userId}&call_control_id=${call_control_id}&dir=inbound`;
+            
+            logger.info(`[WEBHOOK TELNYX] 🚀 Iniciando streaming diferido (inbound) hacia URL: ${streamUrl}`);
+            await startStreaming(call_control_id, streamUrl, pendingInbound.b64State);
+            logger.info({ call_control_id, userId: pendingInbound.userId }, "[WEBHOOK TELNYX] 🔗 Solicitud de WebSocket (streaming_start) enviada con éxito.");
+          } else if (client_state) {
+            // Si es llamada saliente u otra lógica que envíe client_state
             const decodificado = Buffer.from(client_state, "base64").toString("utf8");
             logger.info(`[WEBHOOK TELNYX] Estado del cliente (client_state) decodificado: ${decodificado}`);
             try {
@@ -184,7 +197,7 @@ telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
               logger.warn("[WEBHOOK TELNYX] El client_state no es JSON válido.");
             }
           } else {
-            logger.warn("[WEBHOOK TELNYX] No se recibió client_state en el evento call.answered.");
+            logger.warn("[WEBHOOK TELNYX] No se recibió client_state en el evento call.answered y no había streams pendientes.");
           }
           break;
         }

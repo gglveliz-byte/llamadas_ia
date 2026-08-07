@@ -299,13 +299,56 @@ export async function createOutboundCall(params: {
     client_state: Buffer.from(params.clientState).toString("base64"),
   };
 
-  const data = await telnyxFetch<{ data: TelnyxCallControl }>("/calls", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
+  let data: { data: TelnyxCallControl };
+  try {
+    data = await telnyxFetch<{ data: TelnyxCallControl }>("/calls", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    // 10010 = la conexión no tiene perfil saliente: asignarlo y reintentar
+    if (String((e as Error).message).includes("10010") && body.connection_id) {
+      await asegurarPerfilSaliente(String(body.connection_id));
+      data = await telnyxFetch<{ data: TelnyxCallControl }>("/calls", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    } else {
+      throw e;
+    }
+  }
 
   logger.info({ from: params.from, to: params.to }, "Llamada saliente creada en Telnyx");
   return { callControlId: data.data.call_control_id };
+}
+
+/**
+ * Telnyx exige un "outbound voice profile" en la conexión para marcar hacia
+ * afuera (error 10010 si falta). Lo crea/asigna automáticamente.
+ */
+async function asegurarPerfilSaliente(connectionId: string): Promise<void> {
+  const conn = await telnyxFetch<{ data: { outbound_voice_profile_id?: string | null } }>(
+    `/connections/${connectionId}`
+  );
+  if (conn.data?.outbound_voice_profile_id) return;
+
+  const perfiles = await telnyxFetch<{ data: Array<{ id: string }> }>(
+    "/outbound_voice_profiles"
+  );
+  let perfilId = perfiles.data?.[0]?.id;
+  if (!perfilId) {
+    const creado = await telnyxFetch<{ data: { id: string } }>("/outbound_voice_profiles", {
+      method: "POST",
+      body: JSON.stringify({ name: "VozIA Salientes" }),
+    });
+    perfilId = creado.data.id;
+  }
+
+  await telnyxFetch(`/connections/${connectionId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ outbound_voice_profile_id: perfilId }),
+  });
+  logger.info({ connectionId, perfilId }, "Perfil saliente asignado a la conexión");
 }
 
 /**

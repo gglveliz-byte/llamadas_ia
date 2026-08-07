@@ -17,16 +17,24 @@ export interface TelnyxSignatureParts {
   signature: string;
 }
 
-function parseTelnyxSignature(header: string): TelnyxSignatureParts | null {
-  // Formato: "timestamp,signature" o "t=timestamp,s=signature"
-  const parts = header.split(",");
-  if (parts.length !== 2) return null;
+function parseTelnyxSignature(
+  header: string,
+  timestampHeader?: string
+): TelnyxSignatureParts | null {
+  // Telnyx envía la firma en Telnyx-Signature-Ed25519 y el timestamp en un
+  // header aparte (Telnyx-Timestamp). También aceptamos "timestamp,signature".
+  if (header.includes(",")) {
+    const parts = header.split(",");
+    if (parts.length !== 2) return null;
+    const timestamp = parts[0].trim();
+    const signature = parts[1].trim();
+    if (!timestamp || !signature) return null;
+    return { timestamp, signature };
+  }
 
-  const timestamp = parts[0].trim();
-  const signature = parts[1].trim();
-
-  if (!timestamp || !signature) return null;
-
+  const signature = header.trim();
+  const timestamp = (timestampHeader ?? "").trim();
+  if (!signature || !timestamp) return null;
   return { timestamp, signature };
 }
 
@@ -71,7 +79,10 @@ export function validarFirmaTelnyx(req: Request, res: Response, next: NextFuncti
     return;
   }
 
-  const parsed = parseTelnyxSignature(signatureHeader);
+  const parsed = parseTelnyxSignature(
+    signatureHeader,
+    req.headers["telnyx-timestamp"] as string | undefined
+  );
   if (!parsed) {
     logger.warn({ header: signatureHeader }, "Formato de firma Telnyx inválido");
     res.status(401).json({ error: "Formato de firma inválido" });

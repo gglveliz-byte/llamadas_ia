@@ -27,7 +27,7 @@ import { iniciarMonitoreo } from "./services/monitoring.service";
 import { procesarRentasMensuales } from "./services/rentas.service";
 import { rateLimiter } from "./middleware/rateLimiter";
 import { logger } from "./utils/logger";
-import { verificarFfmpegDisponible } from "./utils/audioTranscoder";
+import { getAudioTranscoder } from "./utils/audioTranscoder";
 import { verificarSMTP } from "./services/email.service";
 import { verificarVad } from "./services/vad.service";
 
@@ -216,15 +216,6 @@ server.listen(PORT, () => {
   }, 6 * 60 * 60 * 1000);
 
   // Verificar dependencias de runtime
-  const ffmpegCheck = verificarFfmpegDisponible();
-  if (ffmpegCheck.disponible) {
-    logger.info({ ffmpegPath: ffmpegCheck.path }, "✅ ffmpeg disponible para transcodificación");
-  } else {
-    logger.error(
-      { ffmpegPath: ffmpegCheck.path },
-      "❌ ffmpeg no disponible - transcodificación y grabaciones fallarán"
-    );
-  }
   verificarSMTP().catch((e) => {
     logger.error({ error: (e as Error).message }, "Error verificando SMTP");
   });

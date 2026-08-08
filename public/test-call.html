@@ -145,7 +145,9 @@
   };
 
   const load = () => {
-    $("userId").value = localStorage.getItem("tc_user") || "";
+    $("userId").value =
+      localStorage.getItem("tc_user") ||
+      "5fff2c02-d7bb-42a8-a255-048e0de4088b"; // default: lveliz213@hotmail.com
     $("wsBase").value = localStorage.getItem("tc_ws") || PRESETS["Local"];
     $("caller").value = localStorage.getItem("tc_caller") || "";
     $("callee").value = localStorage.getItem("tc_callee") || "";

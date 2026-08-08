@@ -8,7 +8,21 @@ import { emitirSSE } from "../sse/events.emitter";
 import { registrarLatencia, enviarAlertaAdmin } from "../services/monitoring.service";
 import { actualizarRateLimitGemini } from "../services/ratelimit.service";
 import { vadConfigManager } from "../services/vad.service";
+import { conTimeout, crearDedup, firmaHerramienta } from "../utils/toolGuards";
 import { logger } from "../utils/logger";
+
+// Timeouts de ejecución por herramienta (la voz espera: mantener cortos)
+const TIMEOUTS: Record<string, number> = {
+  consultar_disponibilidad: 2000,
+  agendar_cita: 2500,
+  cancelar_cita: 2500,
+};
+const TIMEOUT_DEFAULT = 2500;
+const UMBRAL_TOOL_LENTA_MS = 2000;
+
+// Herramientas mutantes: deduplicadas por llamada para evitar doble ejecución
+const HERRAMIENTAS_MUTANTES = new Set(["agendar_cita", "cancelar_cita"]);
+const dedupHerramientas = crearDedup(90000);
 
 // URL base de la API de Gemini para detectar requests a interceptar
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com";
@@ -384,10 +398,15 @@ export async function ejecutarHerramienta(
   userId: string,
   callSid: string
 ): Promise<unknown> {
+  const t0 = Date.now();
   logger.info({ name, args, userId, callSid }, "Ejecutando function call");
 
-  const registrar = (status: "ok" | "error", data: unknown, voice_instruction: string) => {
-    emitirSSE(userId, "herramienta_usada", { callSid, name, args, status, data, voice_instruction });
+  const registrar = (status: string, data: unknown, voice_instruction: string) => {
+    const durationMs = Date.now() - t0;
+    if (durationMs > UMBRAL_TOOL_LENTA_MS) {
+      logger.warn({ name, durationMs, callSid }, "Herramienta lenta");
+    }
+    emitirSSE(userId, "herramienta_usada", { callSid, name, args, status, data, voice_instruction, durationMs });
     db.callTranscript
       .create({
         data: {
@@ -398,14 +417,31 @@ export async function ejecutarHerramienta(
         },
       })
       .catch((e) => logger.warn({ error: (e as Error).message }, "Error guardando transcript de herramienta"));
-    return { status, data, voice_instruction };
+    return { status, data, voice_instruction, durationMs };
   };
+
+  // Deduplicación de herramientas mutantes (evita doble ejecución en retries)
+  let firma = "";
+  if (HERRAMIENTAS_MUTANTES.has(name)) {
+    firma = `${callSid}|${firmaHerramienta(name, args)}`;
+    if (dedupHerramientas.yaEjecutada(firma)) {
+      logger.info({ name, callSid }, "Herramienta duplicada omitida");
+      return registrar(
+        "duplicado",
+        { error: "duplicado" },
+        "Eso ya lo procesé hace un momento. Confirma con el cliente el estado actual o si desea otra cosa."
+      );
+    }
+  }
 
   try {
     switch (name) {
       case "consultar_disponibilidad": {
         const { date, recurso_id } = args as { date: string; recurso_id?: string };
-        const resultado = await consultarDisponibilidad(userId, date, recurso_id);
+        const resultado = await conTimeout(
+          consultarDisponibilidad(userId, date, recurso_id),
+          TIMEOUTS[name] ?? TIMEOUT_DEFAULT
+        );
         if (!resultado.abierto) {
           return registrar(
             "error",
@@ -439,18 +475,24 @@ export async function ejecutarHerramienta(
             "Faltan datos para agendar (nombre o fecha). Pregunta amablemente lo que falte al cliente."
           );
         }
-        const resultado = await agendarCita({
-          userId,
-          customerName: params.customer_name,
-          customerPhone: params.customer_phone,
-          customerEmail: params.customer_email,
-          startTime: new Date(params.start_time),
-          endTime: params.end_time ? new Date(params.end_time) : undefined,
-          durationMinutes: params.duration_minutes,
-          recursoId: params.recurso_id,
-          servicio: params.servicio,
-          notes: params.notes,
-        });
+        // Marcar antes de ejecutar: si la operación tarda y el modelo reintenta,
+        // el retry se omite en vez de crear una cita doble.
+        dedupHerramientas.marcar(firma);
+        const resultado = await conTimeout(
+          agendarCita({
+            userId,
+            customerName: params.customer_name,
+            customerPhone: params.customer_phone,
+            customerEmail: params.customer_email,
+            startTime: new Date(params.start_time),
+            endTime: params.end_time ? new Date(params.end_time) : undefined,
+            durationMinutes: params.duration_minutes,
+            recursoId: params.recurso_id,
+            servicio: params.servicio,
+            notes: params.notes,
+          }),
+          TIMEOUTS[name] ?? TIMEOUT_DEFAULT
+        );
         if (resultado.ok === false) {
           const instrucciones: Record<string, string> = {
             day_closed: "Ese día no atendemos. Informa el horario de atención y ofrece revisar otro día.",
@@ -493,12 +535,23 @@ export async function ejecutarHerramienta(
           customer_phone?: string;
           date?: string;
         };
-        const { canceladas } = await cancelarCita({
-          userId,
-          customerName: params.customer_name,
-          customerPhone: params.customer_phone,
-          date: params.date,
-        });
+        if (!params.customer_name && !params.customer_phone) {
+          return registrar(
+            "error",
+            { error: "faltan_datos" },
+            "Faltan datos para buscar la cita. Pide el nombre o teléfono del cliente."
+          );
+        }
+        dedupHerramientas.marcar(firma);
+        const { canceladas } = await conTimeout(
+          cancelarCita({
+            userId,
+            customerName: params.customer_name,
+            customerPhone: params.customer_phone,
+            date: params.date,
+          }),
+          TIMEOUTS[name] ?? TIMEOUT_DEFAULT
+        );
         if (canceladas === 0) {
           return registrar(
             "error",
@@ -518,11 +571,15 @@ export async function ejecutarHerramienta(
         return registrar("error", { error: `Herramienta ${name} no implementada` }, "Disculpa, no pude completar eso. ¿Puedes repetirlo?");
     }
   } catch (e) {
-    logger.error({ error: (e as Error).message, name }, "Error ejecutando herramienta");
+    const mensaje = (e as Error).message;
+    const esTimeout = mensaje?.startsWith("Timeout");
+    logger.error({ error: mensaje, name }, "Error ejecutando herramienta");
     return registrar(
-      "error",
-      { error: (e as Error).message },
-      "Hubo un problema al procesar tu solicitud. Pide disculpas y ofrece intentarlo de nuevo o tomar un mensaje."
+      "timeout",
+      { error: mensaje },
+      esTimeout
+        ? "El sistema está tardando más de lo normal. Pide una disculpa breve, no confirmes todavía y pregunta si puede esperar unos segundos mientras verificas."
+        : "Hubo un problema al procesar tu solicitud. Pide disculpas y ofrece intentarlo de nuevo o tomar un mensaje."
     );
   }
 }

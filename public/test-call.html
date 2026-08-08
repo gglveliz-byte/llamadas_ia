@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Test Call — Simulador Telnyx</title>
+<style>
+  :root {
+    --bg: #0b141a;
+    --panel: #1f2c33;
+    --border: rgba(255,255,255,0.08);
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --primary: #4cc38a;
+    --red: #f85149;
+    --amber: #d29922;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 16px; }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  header h1 { font-size: 16px; margin: 0; }
+  header .tag { font-size: 11px; color: var(--muted); }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-top: 12px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: .04em; }
+  input, select {
+    width: 100%; background: #111b22; color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 10px; font-size: 13px; font-family: inherit;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--primary); }
+  .row { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
+  button {
+    border: none; border-radius: 10px; padding: 12px 18px; font-size: 14px; font-weight: 600;
+    cursor: pointer; font-family: inherit; transition: opacity .15s, transform .05s;
+  }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button:active { transform: translateY(1px); }
+  .btn-call { background: var(--primary); color: #04110a; flex: 1; }
+  .btn-hangup { background: var(--red); color: #fff; flex: 1; }
+  .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+  .status { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #6e7681; }
+  .dot.idle { background: #6e7681; }
+  .dot.connecting { background: var(--amber); animation: pulse 1s infinite; }
+  .dot.active { background: var(--red); animation: pulse 1s infinite; }
+  .dot.listening { background: var(--primary); animation: pulse .8s infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .log {
+    margin-top: 12px; background: #0a1217; border: 1px solid var(--border); border-radius: 12px;
+    padding: 10px; height: 46vh; overflow-y: auto; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    font-size: 12px; line-height: 1.5;
+  }
+  .log .l { white-space: pre-wrap; word-break: break-word; padding: 2px 0; border-bottom: 1px dashed rgba(255,255,255,.04); }
+  .log .ai { color: var(--primary); }
+  .log .tool { color: #79c0ff; }
+  .log .ok { color: var(--primary); }
+  .log .err { color: var(--red); }
+  .log .warn { color: var(--amber); }
+  .log .sys { color: var(--muted); }
+  .log .muted { color: var(--muted); }
+  .note { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 1.5; }
+  .meter { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+  .bars { display: flex; align-items: flex-end; gap: 2px; height: 16px; }
+  .bars span { width: 3px; background: var(--primary); border-radius: 1px; height: 2px; transition: height .06s; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>📞 Test Call <span class="tag">Simulador Telnyx → mismo backend Gemini</span></h1>
+    <div class="meter">mic <span class="bars" id="bars"></span></div>
+  </header>
+
+  <div class="card">
+    <div class="grid">
+      <div style="grid-column: 1 / -1;">
+        <label>User ID del negocio *</label>
+        <input id="userId" placeholder="uuid del usuario (ej. 1a2b…)" autocomplete="off" />
+      </div>
+      <div style="grid-column: 1 / -1;">
+        <label>Backend (WS)</label>
+        <select id="wsPreset"></select>
+        <input id="wsBase" placeholder="ws://localhost:3001" style="margin-top:6px" autocomplete="off" />
+      </div>
+      <div>
+        <label>Número llamante</label>
+        <input id="caller" placeholder="+5215512345678" />
+      </div>
+      <div>
+        <label>Número del negocio</label>
+        <input id="callee" placeholder="+1…" />
+      </div>
+    </div>
+
+    <div class="row">
+      <button id="btnCall" class="btn-call">📞 Llamar</button>
+      <button id="btnHangup" class="btn-hangup" disabled>📴 Colgar</button>
+      <button id="btnClear" class="btn-outline">Limpiar log</button>
+    </div>
+
+    <div class="status" style="margin-top:12px">
+      <span class="dot idle" id="dot"></span>
+      <span id="statusText">En espera</span>
+    </div>
+  </div>
+
+  <div class="log" id="log"></div>
+
+  <p class="note">
+    💡 Ábrela desde <b>localhost</b> (<code>npm run dev</code> → <code>http://localhost:3000/test-call.html</code>)
+    o desde tu dominio <b>https</b>; el micrófono requiere contexto seguro.
+    El user_id debe tener <b>saldo en su wallet</b>. La llamada usa el MISMO flujo que Telnyx
+    (<code>/stream/telnyx</code>): misma sesión Gemini, mismas herramientas de agendamiento.
+    Prueba: <i>“Quiero un corte de pelo mañana a las 3”</i>.
+  </p>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------- Estado ----------
+  let ws = null;
+  let sse = null;
+  let ac = null;
+  let micStream = null;
+  let processor = null;
+  let activeSources = [];
+  let pendingSamples = [];
+  let playhead = 0;
+  let chunkNum = 0;
+  let callControlId = "";
+  let llamando = false;
+
+  const $ = (id) => document.getElementById(id);
+
+  // ---------- Persistencia / presets ----------
+  const PRESETS = {
+    "Local": "ws://localhost:3001",
+    "Render": "wss://vozia-backend-eezl.onrender.com",
+  };
+
+  const load = () => {
+    $("userId").value = localStorage.getItem("tc_user") || "";
+    $("wsBase").value = localStorage.getItem("tc_ws") || PRESETS["Local"];
+    $("caller").value = localStorage.getItem("tc_caller") || "";
+    $("callee").value = localStorage.getItem("tc_callee") || "";
+    $("wsPreset").innerHTML = Object.keys(PRESETS)
+      .map((k) => `<option value="${PRESETS[k]}">${k}</option>`)
+      .join("") + `<option value="">— personalizado —</option>`;
+    $("wsPreset").value = $("wsBase").value;
+  };
+  const save = () => {
+    localStorage.setItem("tc_user", $("userId").value);
+    localStorage.setItem("tc_ws", $("wsBase").value);
+    localStorage.setItem("tc_caller", $("caller").value);
+    localStorage.setItem("tc_callee", $("callee").value);
+  };
+
+  // ---------- Log ----------
+  const logEl = $("log");
+  function log(texto, clase = "") {
+    const div = document.createElement("div");
+    div.className = "l " + clase;
+    div.textContent = texto;
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+  function fmt(args) {
+    try { return JSON.stringify(args, null, 0); } catch { return String(args); }
+  }
+  function hora() { return new Date().toLocaleTimeString("es-MX", { hour12: false }); }
+
+  // ---------- Estado UI ----------
+  const dot = $("dot");
+  function setEstado(texto, estado = "idle") {
+    $("statusText").textContent = texto;
+    dot.className = "dot " + estado;
+  }
+
+  // ---------- Micrófono → PCM16 16kHz ----------
+  function resample(input, fromRate, toRate) {
+    const ratio = fromRate / toRate;
+    const outLen = Math.max(1, Math.round(input.length / ratio));
+    const out = new Float32Array(outLen);
+    for (let i = 0; i < outLen; i++) {
+      const idx = i * ratio;
+      const i0 = Math.floor(idx);
+      const i1 = Math.min(i0 + 1, input.length - 1);
+      const frac = idx - i0;
+      out[i] = input[i0] * (1 - frac) + input[i1] * frac;
+    }
+    return out;
+  }
+  function floatTo16PCM(f32) {
+    const buf = new ArrayBuffer(f32.length * 2);
+    const view = new DataView(buf);
+    for (let i = 0; i < f32.length; i++) {
+      const s = Math.max(-1, Math.min(1, f32[i]));
+      view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
+    return buf;
+  }
+  function abToB64(buffer) {
+    let bin = "";
+    const bytes = new Uint8Array(buffer);
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  }
+  function b64ToAb(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes.buffer;
+  }
+  function enviarAudio(f32) {
+    if (!ws || ws.readyState !== 1 || !llamando) return;
+    const payload = abToB64(floatTo16PCM(f32));
+    ws.send(JSON.stringify({
+      event: "media",
+      media: {
+        track: "inbound",
+        chunk: chunkNum++,
+        timestamp: new Date().toISOString(),
+        payload,
+      },
+    }));
+  }
+  async function iniciarMicrofono() {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    ac = new (window.AudioContext || window.webkitAudioContext)();
+    await ac.resume();
+    const source = ac.createMediaStreamSource(micStream);
+    processor = ac.createScriptProcessor(4096, 1, 1);
+    processor.onaudioprocess = (e) => {
+      const input = e.inputBuffer.getChannelData(0);
+      const f32 = resample(input, ac.sampleRate, 16000);
+      enviarAudio(f32);
+      // métrica de mic (pequeña)
+      let max = 0;
+      for (let i = 0; i < input.length; i++) max = Math.max(max, Math.abs(input[i]));
+      renderBars(max);
+    };
+    source.connect(processor);
+    processor.connect(ac.destination);
+  }
+
+  // ---------- Reproducción (PCM16 16kHz → altavoz) ----------
+  const barsEl = $("bars");
+  function renderBars(v) {
+    const spans = barsEl.children;
+    for (let i = 0; i < spans.length; i++) {
+      spans[i].style.height = (2 + Math.round(v * 40)) + "px";
+    }
+  }
+  for (let i = 0; i < 5; i++) barsEl.appendChild(document.createElement("span"));
+
+  function playFloat32(samples) {
+    if (!ac || ac.state === "closed") return;
+    pendingSamples.push(samples);
+  }
+  function schedulePending() {
+    if (pendingSamples.length === 0) return;
+    const total = pendingSamples.reduce((a, s) => a + s.length, 0);
+    const merged = new Float32Array(total);
+    let off = 0;
+    for (const s of pendingSamples) { merged.set(s, off); off += s.length; }
+    pendingSamples = [];
+    const ab = ac.createBuffer(1, merged.length, 16000);
+    ab.getChannelData(0).set(merged);
+    const src = ac.createBufferSource();
+    src.buffer = ab;
+    src.connect(ac.destination);
+    const startAt = Math.max(ac.currentTime, playhead);
+    src.start(startAt);
+    playhead = startAt + merged.length / 16000;
+    activeSources.push(src);
+    src.onended = () => { activeSources = activeSources.filter((s) => s !== src); };
+  }
+  function flushPlayback() {
+    for (const s of activeSources) { try { s.stop(); } catch {} }
+    activeSources = [];
+    pendingSamples = [];
+    playhead = ac ? ac.currentTime : 0;
+  }
+  setInterval(schedulePending, 80);
+
+  function manejarAudioEntrante(b64) {
+    const buf = b64ToAb(b64);
+    const int16 = new Int16Array(buf);
+    const f32 = new Float32Array(int16.length);
+    for (let i = 0; i < int16.length; i++) f32[i] = int16[i] / 32768;
+    playFloat32(f32);
+  }
+
+  // ---------- WebSocket (protocolo Telnyx) ----------
+  function conectarWs() {
+    const userId = $("userId").value.trim();
+    if (!userId) { log("❌ Falta el User ID.", "err"); return; }
+    save();
+    callControlId = "test_" + Date.now() + "_" + Math.floor(Math.random() * 9999);
+    const wsBase = $("wsBase").value.trim().replace(/\/+$/, "");
+    const url = `${wsBase}/stream/telnyx?user_id=${encodeURIComponent(userId)}&call_control_id=${encodeURIComponent(callControlId)}&dir=inbound`;
+    log(`📡 Conectando a ${url}`, "sys");
+
+    ws = new WebSocket(url);
+    ws.onopen = () => {
+      log(`🔗 WS abierto. Enviando 'start'… (call_control_id=${callControlId})`, "sys");
+      const from = $("caller").value.trim() || "desconocido";
+      const to = $("callee").value.trim() || "desconocido";
+      ws.send(JSON.stringify({
+        event: "start",
+        stream_id: callControlId,
+        start: { stream_id: callControlId, call_control_id: callControlId, from, to },
+      }));
+      setEstado("Conectado — esperando saludo de la IA", "active");
+    };
+    ws.onmessage = (e) => {
+      let msg;
+      try { msg = JSON.parse(e.data); } catch { return; }
+      if (msg.event === "media" && msg.media?.payload) {
+        manejarAudioEntrante(msg.media.payload);
+      } else if (msg.event === "clear") {
+        flushPlayback();
+        log("🔇 barge-in: cola de audio limpiada", "sys");
+      }
+    };
+    ws.onclose = (e) => {
+      const razon = e.reason || (e.code === 1011 ? "Saldo insuficiente o Gemini no disponible" : "Cerrado");
+      log(`⛔ WS cerrado (${e.code}) ${razon}`, e.code === 1011 ? "err" : "sys");
+      detenerTodo();
+    };
+    ws.onerror = () => log("❌ Error de WebSocket", "err");
+  }
+
+  // ---------- SSE en vivo (transcripción + herramientas) ----------
+  function conectarSse() {
+    try { if (sse) sse.close(); } catch {}
+    const userId = $("userId").value.trim();
+    const wsBase = $("wsBase").value.trim().replace(/\/+$/, "");
+    const httpBase = wsBase.replace(/^wss:\/\//, "https://").replace(/^ws:\/\//, "http://");
+    const url = `${httpBase}/sse/events?user_id=${encodeURIComponent(userId)}`;
+    sse = new EventSource(url);
+    sse.addEventListener("transcripcion", (e) => {
+      try {
+        const d = JSON.parse(e.data);
+        log(`${hora()} 💬 [${d.rol || "ai"}] ${d.texto}`, d.rol === "ai" ? "ai" : "");
+      } catch {}
+    });
+    sse.addEventListener("herramienta_usada", (e) => {
+      try {
+        const d = JSON.parse(e.data);
+        const ok = d.status === "ok";
+        const args = fmt(d.args);
+        const extra = d.durationMs != null ? ` · ${d.durationMs}ms` : "";
+        log(`${hora()} 🛠️ ${d.name} ${args} → ${d.status}${extra}`, ok ? "tool" : d.status === "error" ? "err" : "warn");
+        if (d.name === "agendar_cita") {
+          const d2 = d.data || {};
+          if (ok && d2.servicio) log(`   ↳ servicio agendado: ${d2.servicio} · ${d2.start_time}`, "ok");
+        }
+      } catch {}
+    });
+    sse.addEventListener("nueva_cita", (e) => {
+      try { log(`${hora()} 📅 nueva_cita: ${e.data}`, "ok"); } catch {}
+    });
+    sse.addEventListener("llamada_iniciada", () => log(`${hora()} 📞 llamada_iniciada`, "sys"));
+    sse.addEventListener("llamada_finalizada", (e) => {
+      try {
+        const d = JSON.parse(e.data);
+        log(`${hora()} ✅ llamada_finalizada · ${d.duracionSegundos ?? 0}s · $${(d.costo ?? 0).toFixed(4)}`, "ok");
+      } catch {}
+    });
+    sse.onerror = () => {};
+  }
+
+  // ---------- Control de llamada ----------
+  async function llamar() {
+    if (llamando) return;
+    const userId = $("userId").value.trim();
+    if (!userId) { log("❌ Escribe el User ID.", "err"); return; }
+    log("📞 Iniciando llamada…", "sys");
+    setEstado("Conectando…", "connecting");
+    $("btnCall").disabled = true;
+    try {
+      await iniciarMicrofono();
+    } catch (e) {
+      log("❌ No se pudo abrir el micrófono: " + e.message, "err");
+      setEstado("Micrófono bloqueado", "idle");
+      $("btnCall").disabled = false;
+      return;
+    }
+    llamando = true;
+    $("btnHangup").disabled = false;
+    conectarSse();
+    conectarWs();
+  }
+
+  function detenerTodo() {
+    llamando = false;
+    flushPlayback();
+    if (processor) { try { processor.disconnect(); } catch {} processor = null; }
+    if (micStream) { micStream.getTracks().forEach((t) => t.stop()); micStream = null; }
+    if (ac) { try { ac.close(); } catch {} ac = null; }
+    if (sse) { try { sse.close(); } catch {} sse = null; }
+    $("btnCall").disabled = false;
+    $("btnHangup").disabled = true;
+    setEstado("En espera", "idle");
+    renderBars(0);
+  }
+
+  function colgar() {
+    if (ws && ws.readyState === 1) {
+      try { ws.send(JSON.stringify({ event: "stop", stream_id: callControlId, call_control_id: callControlId })); } catch {}
+    }
+    if (ws) { try { ws.close(); } catch {} ws = null; }
+    log("📴 Colgando…", "sys");
+    detenerTodo();
+  }
+
+  // ---------- Init ----------
+  $("btnCall").addEventListener("click", llamar);
+  $("btnHangup").addEventListener("click", colgar);
+  $("btnClear").addEventListener("click", () => { logEl.innerHTML = ""; });
+  $("wsPreset").addEventListener("change", () => {
+    if ($("wsPreset").value) $("wsBase").value = $("wsPreset").value;
+  });
+  load();
+  log("Bienvenido. Pega el User ID, pulsa Llamar y habla con la IA (misma de Telnyx).", "sys");
+})();
+</script>
+</body>
+</html>

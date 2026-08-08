@@ -40,6 +40,7 @@ export const createAppointmentSchema = z.object({
   startTime: z.string().min(1, "startTime requerido"),
   durationMinutes: z.number().int().positive().optional().default(30),
   recursoId: z.string().max(100).optional().default(""),
+  servicio: z.string().max(255).optional().default(""),
   notes: z.string().max(500).optional().default(""),
   extraFields: recordUnknown.optional(),
 });

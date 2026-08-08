@@ -326,6 +326,9 @@ export function DashboardSection() {
                           {format(new Date(cita.startTime), "EEE d 'de' MMM, HH:mm", { locale: es })}
                           {cita.recursoId && ` · ${cita.recursoId}`}
                         </div>
+                        {cita.servicio && (
+                          <div className="text-xs font-medium text-primary truncate">{cita.servicio}</div>
+                        )}
                       </div>
                       <Badge
                         variant="outline"

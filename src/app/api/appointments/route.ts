@@ -49,6 +49,7 @@ export async function POST(req: NextRequest) {
     startTime,
     durationMinutes = 30,
     recursoId,
+    servicio,
     notes,
     extraFields,
   } = val.data!;
@@ -91,6 +92,7 @@ export async function POST(req: NextRequest) {
       endTime: fin,
       durationMinutes,
       recursoId,
+      servicio: servicio || null,
       notes,
       extraFields: (extraFields ?? null) as never,
     },

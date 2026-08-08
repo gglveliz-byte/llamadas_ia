@@ -161,6 +161,7 @@ model Appointment {
   endTime         DateTime?       @db.Timestamptz(6)
   durationMinutes Int?
   recursoId       String?
+  servicio        String?
   status          String          @default("agendado")
   notes           String?
   createdAt       DateTime        @default(now())

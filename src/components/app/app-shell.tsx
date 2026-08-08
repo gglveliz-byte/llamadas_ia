@@ -90,6 +90,30 @@ export function AppShell() {
       case "nueva_cita":
         toast.success("📅 Nueva cita agendada por la IA");
         break;
+      case "herramienta_usada": {
+        const d = data as {
+          name?: string;
+          status?: string;
+          args?: { customer_name?: string; date?: string; servicio?: string; start_time?: string };
+          data?: { servicio?: string | null };
+        };
+        const nombre = d.name ?? "";
+        const args = d.args ?? {};
+        const ok = d.status === "ok";
+        let texto = "";
+        if (nombre === "agendar_cita" && ok) {
+          const serv = d.data?.servicio || args.servicio;
+          texto = `🛠️ IA agendó${serv ? ` ${serv}` : " cita"} para ${args.customer_name ?? ""}`.trim();
+        } else if (nombre === "agendar_cita") {
+          texto = `🛠️ IA intentó agendar para ${args.customer_name ?? "cliente"} (sin éxito)`;
+        } else if (nombre === "consultar_disponibilidad") {
+          texto = `🛠️ IA consultó disponibilidad para ${args.date ?? ""}`;
+        } else if (nombre === "cancelar_cita") {
+          texto = `🛠️ IA canceló cita de ${args.customer_name ?? "cliente"}`;
+        }
+        if (texto) ok ? toast.info(texto) : toast.warning(texto);
+        break;
+      }
       case "llamada_iniciada":
         toast.info("📞 Llamada entrante en curso");
         break;

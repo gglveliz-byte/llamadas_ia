@@ -165,23 +165,25 @@ export const emailTemplates = {
       `),
     };
   },
-  citaAgendada: (negocio: string, fecha: string) => ({
+  citaAgendada: (negocio: string, fecha: string, servicio?: string) => ({
     subject: `Confirmación de cita - ${negocio}`,
-    text: `Tu cita ha sido agendada para ${fecha}. Te esperamos.`,
+    text: `Tu cita${servicio ? ` (${servicio})` : ""} ha sido agendada para ${fecha}. Te esperamos.`,
     html: baseHtml(`
       <h2 style="margin:0 0 16px;color:#1a1a2e;">Cita confirmada</h2>
       <p>Tu cita en <strong>${negocio}</strong> ha sido agendada para:</p>
       <p style="font-size:18px;font-weight:600;color:#1a1a2e;margin:16px 0;">${fecha}</p>
+      ${servicio ? `<p>Servicio: <strong>${servicio}</strong></p>` : ""}
       <p>Te esperamos. Si necesitas cambiarla, contáctanos.</p>
     `),
   }),
-  nuevaCita: (cliente: string, fecha: string) => ({
+  nuevaCita: (cliente: string, fecha: string, servicio?: string) => ({
     subject: "Tienes una nueva cita",
-    text: `Nueva cita agendada por ${cliente} para ${fecha}.`,
+    text: `Nueva cita agendada por ${cliente}${servicio ? ` (${servicio})` : ""} para ${fecha}.`,
     html: baseHtml(`
       <h2 style="margin:0 0 16px;color:#1a1a2e;">Nueva cita agendada</h2>
       <p><strong>${cliente}</strong> ha agendado una cita para:</p>
       <p style="font-size:18px;font-weight:600;color:#1a1a2e;margin:16px 0;">${fecha}</p>
+      ${servicio ? `<p>Servicio: <strong>${servicio}</strong></p>` : ""}
       <p>Revisa tu panel para ver los detalles.</p>
     `),
   }),

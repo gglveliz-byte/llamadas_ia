@@ -27,7 +27,7 @@ export function CalendarView({ appointments, onSelectEvent }: CalendarViewProps)
   const events: Event[] = appointments
     .filter((a) => a.status !== "cancelado")
     .map((a) => ({
-      title: a.customerName,
+      title: a.servicio ? `${a.customerName} · ${a.servicio}` : a.customerName,
       start: new Date(a.startTime),
       end: a.endTime ? new Date(a.endTime) : new Date(new Date(a.startTime).getTime() + (a.durationMinutes ?? 30) * 60000),
       resource: a,

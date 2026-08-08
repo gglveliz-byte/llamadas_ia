@@ -155,8 +155,12 @@ describe("procesarMensajesGemini", () => {
 });
 
 describe("ejecutarHerramienta", () => {
-  it("devuelve error para herramienta desconocida", async () => {
+  it("devuelve error estándar para herramienta desconocida", async () => {
     const res = await ejecutarHerramienta("herramienta_fantasma", {}, "u", "call-herramienta-1");
-    expect(res).toEqual({ error: "Herramienta herramienta_fantasma no implementada" });
+    expect(res).toMatchObject({
+      status: "error",
+      data: { error: "Herramienta herramienta_fantasma no implementada" },
+    });
+    expect(typeof (res as any).voice_instruction).toBe("string");
   });
 });

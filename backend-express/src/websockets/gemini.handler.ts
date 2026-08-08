@@ -66,7 +66,7 @@ export async function crearSesionGemini(
   }
 
   const systemPrompt = construirSystemPrompt(contexto, settings, callSid, modo);
-  const herramientas = obtenerHerramientas();
+  const herramientas = obtenerHerramientas(settings);
   const aiVoice = settings.aiVoice || "Puck";
   const vadCfg = await vadConfigManager.getConfig();
   const prefixPadMs = Number(vadCfg.gemini_prefix_pad_ms) || 250;
@@ -165,6 +165,9 @@ Hoy es ${fechaActual} (Zona horaria: ${settings.timezone})
 - Modo: ${modoCita}
 - Horario de atención: ${horarioTexto}
 - ${settings.modo247 ? "NOTA IMPORTANTE: Si la fecha y hora actual está fuera del horario de atención, NO AGENDES. Solo informa el horario y ofrece tomar un mensaje." : ""}
+- HOY es ${fechaActual}. Cuando el cliente diga fechas relativas (hoy, mañana, pasado mañana, "el lunes", "la próxima semana"), conviértelas SIEMPRE a la fecha exacta YYYY-MM-DD calculada a partir de HOY en la zona horaria del negocio. NUNCA agendes en el pasado.
+- Antes de agendar SIEMPRE llama a consultar_disponibilidad con la fecha exacta. Agenda ÚNICAMENTE usando un horario de su resultado (usa disponibles_iso, son timestamps listos). Si el horario pedido no está disponible, ofrece los disponibles.
+- Captura el servicio que pide el cliente y pásalo en el parámetro servicio de agendar_cita (debe existir en el CONTEXTO DEL NEGOCIO). Si no lo menciona, pregúntalo antes de confirmar.
 
 ## FORMULARIO DE DATOS
 Debes recopilar: ${safeFormFields}
@@ -274,16 +277,34 @@ function formatearHorario(
 
 /**
  * Define las herramientas (function calling) disponibles para Gemini.
- * Cumple spec 7.6.
+ * Cumple spec 7.6. El set se adapta a la configuración del negocio.
  */
-function obtenerHerramientas() {
+function obtenerHerramientas(settings: {
+  bookingMode: string;
+  defaultDurationMinutes: number;
+  checkInTime?: string;
+  checkOutTime?: string;
+  recursos?: unknown;
+}) {
+  const esModoNoches = settings.bookingMode === "nights";
+  const duracion = settings.defaultDurationMinutes || 30;
+  const modoTexto = esModoNoches
+    ? "las citas son por noches (check-in y check-out) y el horario es de 24 horas"
+    : `las citas son por franjas de ${duracion} minutos y solo dentro del horario de atención`;
+
+  const recursos = Array.isArray(settings.recursos)
+    ? (settings.recursos as Array<{ id: string; nombre: string }>).map((r) => r.nombre).slice(0, 10).join(", ")
+    : "";
+
   return [
     {
       functionDeclarations: [
         {
           name: "consultar_disponibilidad",
           description:
-            "Consulta citas agendadas para una fecha. Retorna horarios ocupados y libres.",
+            `Consulta citas agendadas para una fecha determinada. En ${modoTexto}. ` +
+            `Retorna horarios ocupados, horarios libres (disponibles_iso son timestamps completos listos para agendar) y si el día está abierto. ` +
+            `Usa la fecha que pida el cliente (hoy, mañana, etc.) en formato YYYY-MM-DD.`,
           parameters: {
             type: Type.OBJECT,
             properties: {
@@ -302,24 +323,30 @@ function obtenerHerramientas() {
         {
           name: "agendar_cita",
           description:
-            "Agenda una nueva cita. Verifica que no haya conflicto antes de guardar.",
+            `Agenda una nueva cita para un cliente. ${esModoNoches ? `Check-in ${settings.checkInTime}, check-out ${settings.checkOutTime}.` : `Duración de ${duracion} minutos, dentro del horario de atención.`} ` +
+            "Usa start_time de los disponibles_iso que devolvió consultar_disponibilidad. Captura el servicio solicitado por el cliente del CONTEXTO DEL NEGOCIO.",
           parameters: {
             type: Type.OBJECT,
             properties: {
-              customer_name: { type: Type.STRING },
-              customer_phone: { type: Type.STRING },
-              customer_email: { type: Type.STRING },
+              customer_name: { type: Type.STRING, description: "Nombre del cliente" },
+              customer_phone: { type: Type.STRING, description: "Teléfono del cliente (si lo dio)" },
+              customer_email: { type: Type.STRING, description: "Email del cliente (si lo dio)" },
               start_time: {
                 type: Type.STRING,
-                description: "ISO 8601 con timezone",
+                description: "Inicio de la cita en ISO 8601 (usa disponibles_iso)",
               },
               end_time: {
                 type: Type.STRING,
-                description: "ISO 8601 (modo noches - opcional)",
+                description: "Fin de la cita en ISO 8601 (modo noches - opcional)",
               },
-              duration_minutes: { type: Type.INTEGER },
-              recurso_id: { type: Type.STRING },
-              notes: { type: Type.STRING },
+              duration_minutes: { type: Type.INTEGER, description: "Duración en minutos (opcional)" },
+              recurso_id: { type: Type.STRING, description: "ID del recurso del negocio (opcional)" },
+              servicio: {
+                type: Type.STRING,
+                description:
+                  "Servicio que pidió el cliente (ej. corte de pelo, consulta). Debe estar en el CONTEXTO DEL NEGOCIO; si el cliente no lo menciona, pregúntalo antes de agendar.",
+              },
+              notes: { type: Type.STRING, description: "Notas adicionales (opcional)" },
             },
             required: ["customer_name", "start_time"],
           },
@@ -347,7 +374,8 @@ function obtenerHerramientas() {
 }
 
 /**
- * Ejecuta una herramienta (function call) y retorna el resultado.
+ * Ejecuta una herramienta (function call) y retorna el resultado en un formato
+ * estándar con voice_instruction para que la IA sepa qué decirle al cliente.
  * Cumple spec 7.6 - function calling síncrono.
  */
 export async function ejecutarHerramienta(
@@ -358,11 +386,38 @@ export async function ejecutarHerramienta(
 ): Promise<unknown> {
   logger.info({ name, args, userId, callSid }, "Ejecutando function call");
 
+  const registrar = (status: "ok" | "error", data: unknown, voice_instruction: string) => {
+    emitirSSE(userId, "herramienta_usada", { callSid, name, args, status, data, voice_instruction });
+    db.callTranscript
+      .create({
+        data: {
+          userId,
+          callSid,
+          rol: "tool",
+          texto: `${name}(${JSON.stringify(args)}) → ${status}`,
+        },
+      })
+      .catch((e) => logger.warn({ error: (e as Error).message }, "Error guardando transcript de herramienta"));
+    return { status, data, voice_instruction };
+  };
+
   try {
     switch (name) {
       case "consultar_disponibilidad": {
         const { date, recurso_id } = args as { date: string; recurso_id?: string };
-        return await consultarDisponibilidad(userId, date, recurso_id);
+        const resultado = await consultarDisponibilidad(userId, date, recurso_id);
+        if (!resultado.abierto) {
+          return registrar(
+            "error",
+            resultado,
+            "Ese día estamos cerrados. Menciona nuestro horario de atención y ofrece revisar otro día."
+          );
+        }
+        return registrar(
+          "ok",
+          resultado,
+          "Ya tengo los horarios disponibles para esa fecha. Ofrece el primero que le convenga al cliente y confirma antes de agendar."
+        );
       }
 
       case "agendar_cita": {
@@ -374,8 +429,16 @@ export async function ejecutarHerramienta(
           end_time?: string;
           duration_minutes?: number;
           recurso_id?: string;
+          servicio?: string;
           notes?: string;
         };
+        if (!params.customer_name || !params.start_time) {
+          return registrar(
+            "error",
+            { error: "faltan_datos" },
+            "Faltan datos para agendar (nombre o fecha). Pregunta amablemente lo que falte al cliente."
+          );
+        }
         const resultado = await agendarCita({
           userId,
           customerName: params.customer_name,
@@ -385,21 +448,43 @@ export async function ejecutarHerramienta(
           endTime: params.end_time ? new Date(params.end_time) : undefined,
           durationMinutes: params.duration_minutes,
           recursoId: params.recurso_id,
+          servicio: params.servicio,
           notes: params.notes,
         });
-        if (!(resultado as any).ok) {
-          return { error: (resultado as any).error, conflictoCon: (resultado as any).conflictoCon };
+        if (resultado.ok === false) {
+          const instrucciones: Record<string, string> = {
+            day_closed: "Ese día no atendemos. Informa el horario de atención y ofrece revisar otro día.",
+            fuera_horario: "Esa hora está fuera de nuestro horario de atención. Muestra las opciones dentro del horario disponible.",
+            overlap: "Ese horario acaba de ocuparse. Permíteme ofrecerte otra opción disponible.",
+            sin_settings: "No puedo agendar en este momento. Pide una disculpa y ofrece tomar los datos o un mensaje.",
+          };
+          return registrar(
+            "error",
+            { error: resultado.error, detalle: resultado.detalle },
+            instrucciones[resultado.error] ?? "No se pudo agendar. Pide disculpas y ofrece revisar otra fecha u hora."
+          );
         }
         // Notificar al dueño via SSE
         emitirSSE(userId, "nueva_cita", {
-          cita: (resultado as any).cita,
+          cita: resultado.cita,
           callSid,
         });
-        return {
-          ok: true,
-          cita_id: (resultado as any).cita.id,
-          mensaje: `Cita agendada para ${params.customer_name} el ${new Date(params.start_time).toLocaleString("es-MX")}`,
-        };
+        const fechaCita = new Date(params.start_time).toLocaleString("es-MX", {
+          weekday: "long",
+          day: "numeric",
+          month: "long",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+        return registrar(
+          "ok",
+          {
+            cita_id: resultado.cita.id,
+            servicio: params.servicio ?? null,
+            start_time: params.start_time,
+          },
+          `Listo, la cita queda agendada para ${params.customer_name} el ${fechaCita}${params.servicio ? ` para el servicio de ${params.servicio}` : ""}. Confírmale los datos y despídete amablemente.`
+        );
       }
 
       case "cancelar_cita": {
@@ -414,23 +499,31 @@ export async function ejecutarHerramienta(
           customerPhone: params.customer_phone,
           date: params.date,
         });
-        return {
-          ok: canceladas > 0,
-          canceladas,
-          mensaje:
-            canceladas > 0
-              ? `${canceladas} cita(s) cancelada(s)`
-              : "No se encontró cita para cancelar",
-        };
+        if (canceladas === 0) {
+          return registrar(
+            "error",
+            { canceladas: 0 },
+            "No encontré una cita con esos datos. Pide el nombre y teléfono exactos del cliente para buscarla de nuevo."
+          );
+        }
+        return registrar(
+          "ok",
+          { canceladas },
+          "La cita fue cancelada. Confirma al cliente que quedó cancelada y pregunta si necesita algo más."
+        );
       }
 
       default:
         logger.warn({ name }, "Herramienta desconocida");
-        return { error: `Herramienta ${name} no implementada` };
+        return registrar("error", { error: `Herramienta ${name} no implementada` }, "Disculpa, no pude completar eso. ¿Puedes repetirlo?");
     }
   } catch (e) {
     logger.error({ error: (e as Error).message, name }, "Error ejecutando herramienta");
-    return { error: (e as Error).message };
+    return registrar(
+      "error",
+      { error: (e as Error).message },
+      "Hubo un problema al procesar tu solicitud. Pide disculpas y ofrece intentarlo de nuevo o tomar un mensaje."
+    );
   }
 }
 

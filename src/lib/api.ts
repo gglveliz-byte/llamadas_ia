@@ -167,6 +167,7 @@ export interface Appointment {
   endTime: string | null;
   durationMinutes: number | null;
   recursoId: string | null;
+  servicio: string | null;
   status: "agendado" | "asistio" | "no_asistio" | "cancelado";
   notes: string | null;
   createdAt: string;

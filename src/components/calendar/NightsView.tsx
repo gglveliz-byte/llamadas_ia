@@ -90,6 +90,9 @@ export function NightsView({ appointments, onDateChange, recursos = {} }: Nights
                       {recursos[a.recursoId] || "Recurso"}
                     </div>
                   )}
+                  {a.servicio && (
+                    <div className="text-xs font-medium text-primary">{a.servicio}</div>
+                  )}
                 </div>
                 <span className={cn("text-xs font-medium", STATUS_COLORS[a.status])}>
                   {STATUS_LABEL[a.status]}

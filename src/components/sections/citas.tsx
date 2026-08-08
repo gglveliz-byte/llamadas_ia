@@ -440,6 +440,11 @@ export function CitasSection() {
                             {cita.durationMinutes && ` · ${cita.durationMinutes}min`}
                             {cita.recursoId && ` · ${recursos[cita.recursoId] || "Recurso"}`}
                           </div>
+                          {cita.servicio && (
+                            <div className="text-xs font-medium text-primary mt-0.5">
+                              {cita.servicio}
+                            </div>
+                          )}
                           {cita.customerPhone && (
                             <div className="text-xs text-muted-foreground mt-0.5">
                               {cita.customerPhone}

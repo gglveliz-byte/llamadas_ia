@@ -14,9 +14,13 @@ import {
   Check,
   AlertTriangle,
   RefreshCw,
+  ChevronsUpDown,
+  ChevronDown,
+  Play,
 } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import { ApiClient, type BusinessSettings } from "@/lib/api";
+import { PAISES, derivarIdiomaDeRegion } from "@/lib/paises";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -32,6 +36,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Dialog,
@@ -60,13 +77,16 @@ const DIAS_LABEL: Record<string, string> = {
   domingo: "Domingo",
 };
 
-const IDIOMAS = [
-  { code: "es", label: "Español" },
-  { code: "en", label: "English" },
-  { code: "pt", label: "Português" },
-  { code: "fr", label: "Français" },
-  { code: "it", label: "Italiano" },
-  { code: "de", label: "Deutsch" },
+const VOCES_GEMINI = [
+  { id: "Ursa", label: "Ursa", descripcion: "Intermedia, conversacional y cercana" },
+  { id: "Vega", label: "Vega", descripcion: "Aguda, brillante, optimista y fresca" },
+  { id: "Pegasus", label: "Pegasus", descripcion: "Profunda, grave y pausada" },
+  { id: "Dipper", label: "Dipper", descripcion: "Profunda, firme y con cuerpo (serios)" },
+  { id: "Eclipse", label: "Eclipse", descripcion: "Intermedia, muy enérgica y dinámica" },
+  { id: "Capella", label: "Capella", descripcion: "Aguda, marcado acento británico nativo" },
+  { id: "Orbit", label: "Orbit", descripcion: "Profunda, enérgica y con gran presencia" },
+  { id: "Orion", label: "Orion", descripcion: "Profunda, clara y de oratoria brillante" },
+  { id: "Flare", label: "Flare", descripcion: "Intermedia, suave y sutil" },
 ];
 
 const TIMEZONES = [
@@ -161,6 +181,39 @@ export function ConfiguracionSection() {
     }
   };
 
+  // Cascada País → Idioma → Acento. El acento (settings.aiRegion) es la fuente
+  // de verdad; el idioma siempre se deriva del acento (nunca se configura libre).
+  const regionActual = React.useMemo(() => {
+    const fallbackPais = PAISES.find((p) => p.codigo === "MX") ?? PAISES[0];
+    const id = settings?.aiRegion;
+    for (const p of PAISES) {
+      for (const l of p.idiomas) {
+        for (const a of l.acentos) {
+          if (a.id === id) return { pais: p, idioma: l, acento: a };
+        }
+      }
+    }
+    const pais = fallbackPais;
+    return { pais, idioma: pais.idiomas[0], acento: pais.idiomas[0].acentos[0] };
+  }, [settings?.aiRegion]);
+
+  const aplicarAcento = (id: string) => {
+    if (!settings) return;
+    const nuevo = { ...settings, aiRegion: id, aiLanguage: derivarIdiomaDeRegion(id) };
+    setSettings(nuevo);
+    guardar({ aiRegion: id, aiLanguage: nuevo.aiLanguage });
+  };
+
+  const onCambiarPais = (codigo: string) => {
+    const p = PAISES.find((x) => x.codigo === codigo);
+    if (p) aplicarAcento(p.idiomas[0].acentos[0].id);
+  };
+
+  const onCambiarIdioma = (idioma: string) => {
+    const l = regionActual.pais.idiomas.find((x) => x.idioma === idioma);
+    if (l) aplicarAcento(l.acentos[0].id);
+  };
+
   const comprarNumeroSeleccionado = async (numero: NumeroDisponible) => {
     if (!usuario) return false;
     try {
@@ -180,6 +233,35 @@ export function ConfiguracionSection() {
       toast.error((e as Error).message);
       return false;
     }
+  };
+
+  const reproducirVoz = (voiceId: string) => {
+    const lang = encodeURIComponent(regionActual.idioma.idioma || "Español");
+    const country = encodeURIComponent(regionActual.pais.nombre || "México");
+    const audioUrl = `/api/preview-voice?voice=${encodeURIComponent(voiceId)}&lang=${lang}&country=${country}`;
+    
+    toast.promise(
+      new Promise<void>((resolve, reject) => {
+        fetch(audioUrl)
+          .then((res) => {
+            if (!res.ok) throw new Error("Error al cargar la voz");
+            return res.blob();
+          })
+          .then((blob) => {
+            const url = URL.createObjectURL(blob);
+            const audio = new Audio(url);
+            audio.onended = () => resolve();
+            audio.onerror = () => reject();
+            return audio.play();
+          })
+          .catch(reject);
+      }),
+      {
+        loading: `Cargando la voz de ${voiceId}...`,
+        success: "Reproduciendo...",
+        error: `Error al reproducir la prueba para la voz ${voiceId}.`,
+      }
+    );
   };
 
   if (loading || !settings) {
@@ -219,7 +301,7 @@ export function ConfiguracionSection() {
           <CardHeader>
             <CardTitle className="text-base">Perfil del negocio</CardTitle>
             <CardDescription>
-              Información básica y configuración de idioma de la IA.
+              Información básica y configuración de voz de la IA.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -245,95 +327,148 @@ export function ConfiguracionSection() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="space-y-2">
-                <Label className="flex items-center gap-1">
-                  <Globe className="h-3.5 w-3.5" /> Idioma de la IA
-                </Label>
-                <Select
-                  value={settings.aiLanguage}
-                  onValueChange={(v) => {
-                    setSettings({ ...settings, aiLanguage: v });
-                    guardar({ aiLanguage: v });
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {IDIOMAS.map((i) => (
-                      <SelectItem key={i.code} value={i.code}>
-                        {i.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            <div className="rounded-lg border border-border p-4 space-y-4">
+              <div className="flex items-center gap-2">
+                <Brain className="h-4 w-4 text-primary" />
+                <span className="text-sm font-semibold">Configuración de la IA</span>
               </div>
 
-              <div className="space-y-2">
-                <Label className="flex items-center gap-1">
-                  <Mic className="h-3.5 w-3.5" /> Voz de la IA
-                </Label>
-                <Select
-                  value={settings.aiVoice}
-                  onValueChange={(v) => {
-                    setSettings({ ...settings, aiVoice: v });
-                    guardar({ aiVoice: v });
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Puck">Puck (Masculina)</SelectItem>
-                    <SelectItem value="Charon">Charon (Masculina profunda)</SelectItem>
-                    <SelectItem value="Fenrir">Fenrir (Masculina grave)</SelectItem>
-                    <SelectItem value="Kore">Kore (Femenina clara)</SelectItem>
-                    <SelectItem value="Aoede">Aoede (Femenina cálida)</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-1">
+                    <Globe className="h-3.5 w-3.5" /> País
+                  </Label>
+                  <PaisCombobox value={regionActual.pais.codigo} onChange={onCambiarPais} />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-1">
+                    <Mic className="h-3.5 w-3.5" /> Voz de la IA
+                  </Label>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Select
+                      value={settings.aiVoice}
+                      onValueChange={(v) => {
+                        setSettings({ ...settings, aiVoice: v });
+                        guardar({ aiVoice: v });
+                      }}
+                    >
+                      <SelectTrigger className="flex-1 min-w-0">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {VOCES_GEMINI.map((v) => (
+                          <SelectItem key={v.id} value={v.id}>
+                            {v.label} — {v.descripcion}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button 
+                      variant="outline" 
+                      size="icon" 
+                      className="shrink-0"
+                      onClick={() => reproducirVoz(settings.aiVoice)}
+                      title="Probar voz"
+                    >
+                      <Play className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Zona horaria</Label>
+                  <Select
+                    value={settings.timezone}
+                    onValueChange={(v) => {
+                      setSettings({ ...settings, timezone: v });
+                      guardar({ timezone: v });
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {TIMEZONES.map((tz) => (
+                        <SelectItem key={tz} value={tz}>
+                          {tz}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Modo de citas</Label>
+                  <Select
+                    value={settings.bookingMode}
+                    onValueChange={(v: "hours" | "nights") => {
+                      setSettings({ ...settings, bookingMode: v });
+                      guardar({ bookingMode: v });
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="hours">Por horas</SelectItem>
+                      <SelectItem value="nights">Por noches</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
 
-              <div className="space-y-2">
-                <Label>Zona horaria</Label>
-                <Select
-                  value={settings.timezone}
-                  onValueChange={(v) => {
-                    setSettings({ ...settings, timezone: v });
-                    guardar({ timezone: v });
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {TIMEZONES.map((tz) => (
-                      <SelectItem key={tz} value={tz}>
-                        {tz}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {(regionActual.pais.idiomas.length > 1 || regionActual.idioma.acentos.length > 1) && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                  {regionActual.pais.idiomas.length > 1 && (
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-1">
+                        <Globe className="h-3.5 w-3.5" /> Idioma
+                      </Label>
+                      <Select value={regionActual.idioma.idioma} onValueChange={onCambiarIdioma}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {regionActual.pais.idiomas.map((l) => (
+                            <SelectItem key={l.idioma} value={l.idioma}>
+                              {l.idiomaNombre}
+                              {l.idiomaNeutro ? " (acento neutro)" : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
 
-              <div className="space-y-2">
-                <Label>Modo de citas</Label>
-                <Select
-                  value={settings.bookingMode}
-                  onValueChange={(v: "hours" | "nights") => {
-                    setSettings({ ...settings, bookingMode: v });
-                    guardar({ bookingMode: v });
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="hours">Por horas</SelectItem>
-                    <SelectItem value="nights">Por noches</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+                  {regionActual.idioma.acentos.length > 1 && (
+                    <div className="space-y-2">
+                      <Label className="flex items-center gap-1">
+                        <ChevronDown className="h-3.5 w-3.5" /> Acento
+                      </Label>
+                      <Select value={regionActual.acento.id} onValueChange={aplicarAcento}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {regionActual.idioma.acentos.map((a) => (
+                            <SelectItem key={a.id} value={a.id}>
+                              {a.nombre}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <p className="text-xs text-muted-foreground">
+                El país define el idioma y el acento con el que habla tu IA
+                {regionActual.pais.idiomas.length > 1
+                  ? ". Este país tiene varios idiomas oficiales; elige el que prefieras."
+                  : ` (${regionActual.acento.nombre}).`}
+              </p>
             </div>
 
             <div className="space-y-2">
@@ -771,6 +906,63 @@ export function ConfiguracionSection() {
   );
 }
 
+function PaisCombobox({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (codigo: string) => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const pais = PAISES.find((p) => p.codigo === value);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          className="w-full justify-between gap-2 font-normal text-left"
+        >
+          <span className="min-w-0 flex-1 truncate">
+            {pais ? `${pais.bandera} ${pais.nombre}` : "Selecciona un país"}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
+        <Command>
+          <CommandInput placeholder="Buscar país..." />
+          <CommandList>
+            <CommandEmpty>Sin resultados</CommandEmpty>
+            <CommandGroup>
+              {PAISES.map((p) => (
+                <CommandItem
+                  key={p.codigo}
+                  value={`${p.nombre} ${p.codigo}`}
+                  onSelect={() => {
+                    onChange(p.codigo);
+                    setOpen(false);
+                  }}
+                >
+                  <Check
+                    className={cn(
+                      "mr-2 h-4 w-4",
+                      value === p.codigo ? "opacity-100" : "opacity-0"
+                    )}
+                  />
+                  {p.bandera} {p.nombre}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function RecursosEditor({
   recursos,
   onChange,
@@ -878,7 +1070,7 @@ const fmtMoney = (v?: number | string | null) => {
   return (typeof n === "number" && isFinite(n) ? n : 0).toFixed(2);
 };
 
-const PAISES: Record<string, string> = {
+const PAISES_TELNYX: Record<string, string> = {
   US: "Estados Unidos",
   MX: "México",
   CO: "Colombia",
@@ -1099,7 +1291,7 @@ function SearchNumbersModal({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {Object.entries(PAISES).map(([code, label]) => (
+                  {Object.entries(PAISES_TELNYX).map(([code, label]) => (
                     <SelectItem key={code} value={code}>
                       {label}
                     </SelectItem>
@@ -1144,7 +1336,7 @@ function SearchNumbersModal({
           {!loading && searched && results.length === 0 && !error && (
             <div className="text-sm text-center text-muted-foreground py-10 space-y-1.5">
               <p className="font-medium text-foreground">
-                No hay números disponibles en {PAISES[country] ?? country} por ahora.
+                No hay números disponibles en {PAISES_TELNYX[country] ?? country} por ahora.
               </p>
               <p className="text-xs">La cobertura varía según el país.</p>
               <p className="text-xs">
@@ -1163,7 +1355,7 @@ function SearchNumbersModal({
             <div className="mt-2 space-y-2">
               <div className="text-xs text-muted-foreground">
                 Mostrando {results.length}
-                {total !== null ? ` de ${total}` : ""} números en {PAISES[country] ?? country} ·
+                {total !== null ? ` de ${total}` : ""} números en {PAISES_TELNYX[country] ?? country} ·
                 precios en {results[0]?.cost_information?.currency || "USD"}
               </div>
               <ScrollArea className="h-[50vh] rounded-lg border p-3">
@@ -1182,7 +1374,7 @@ function SearchNumbersModal({
                             </div>
                             <div className="text-xs text-muted-foreground mt-0.5">
                               {[n.locality, n.region].filter(Boolean).join(", ") ||
-                                (n.area_code ? `Código de área ${n.area_code}` : PAISES[country] ?? country)}
+                                (n.area_code ? `Código de área ${n.area_code}` : PAISES_TELNYX[country] ?? country)}
                             </div>
                           </div>
                           <Button

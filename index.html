@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini Live API - Prueba Perfecta</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #0d1117;
+            color: #c9d1d9;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .card {
+            background: #161b22;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border: 1px solid #30363d;
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        button {
+            background: #238636;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+
+        button:disabled {
+            background: #21262d;
+            color: #8b949e;
+            cursor: not-allowed;
+        }
+
+        button.stop {
+            background: #da3633;
+        }
+
+        input {
+            background: #0d1117;
+            color: #c9d1d9;
+            border: 1px solid #30363d;
+            padding: 8px;
+            border-radius: 6px;
+            width: 100%;
+            margin-bottom: 10px;
+            box-sizing: border-box;
+        }
+
+        #log {
+            background: #010409;
+            padding: 15px;
+            border-radius: 6px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 13px;
+        }
+
+        .log-info {
+            color: #58a6ff;
+        }
+
+        .log-success {
+            color: #3fb950;
+        }
+
+        .log-error {
+            color: #f85149;
+        }
+
+        .log-warning {
+            color: #d29922;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="card">
+        <h2>🎙️ Gemini Live - Prueba de Escritorio</h2>
+        <input type="text" id="apiKey" placeholder="Pega aquí tu GEMINI_API_KEY">
+        <button id="btnConnect" onclick="connect()">🔌 Conectar a Gemini</button>
+        <button id="btnStartMic" onclick="startMicrophone()" disabled>🎤 Hablar (Micro)</button>
+        <button id="btnStopMic" class="stop" onclick="stopMicrophone()" disabled>🔇 Detener Micro</button>
+    </div>
+
+    <div class="card">
+        <h3 id="status" style="color: #8b949e;">⚪ Estado: Desconectado</h3>
+        <div id="log"></div>
+    </div>
+
+    <script>
+        let ws;
+        let audioContext;
+        let micSource;
+        let processor;
+
+        // --- COLA DE REPRODUCCIÓN CONTINUA ---
+        let audioQueue = [];
+        let isPlaying = false;
+        let nextPlayTime = 0;
+
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const p = document.createElement('p');
+            p.className = `log-${type}`;
+            p.innerText = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logDiv.appendChild(p);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        async function connect() {
+            const key = document.getElementById('apiKey').value.trim();
+            if (!key) return alert('Ingresa la API Key de Gemini');
+
+            const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${key}`;
+            ws = new WebSocket(url);
+
+            ws.onopen = () => {
+                log('✅ Conectado a Gemini WebSocket. Enviando setup...', 'success');
+                const setupMsg = {
+                    setup: {
+                        model: "models/gemini-3.1-flash-live-preview",
+                        generationConfig: { responseModalities: ["AUDIO"] },
+                        systemInstruction: { parts: [{ text: "Eres un asistente amigable. Responde siempre en español." }] }
+                    }
+                };
+                ws.send(JSON.stringify(setupMsg));
+            };
+
+            ws.onmessage = async (event) => {
+                try {
+                    let msg = event.data;
+                    if (event.data instanceof Blob) {
+                        const text = await event.data.text();
+                        msg = JSON.parse(text);
+                    } else if (typeof event.data === 'string') {
+                        msg = JSON.parse(event.data);
+                    }
+
+                    if (msg.setupComplete) {
+                        log('🎉 SETUP COMPLETE! El modelo está listo para escucharte.', 'success');
+                        document.getElementById('status').innerText = '🟢 Listo para hablar';
+                        document.getElementById('status').style.color = '#3fb950';
+                        document.getElementById('btnStartMic').disabled = false;
+
+                        // Inicializar el motor de audio al recibir el setup
+                        initAudioPlayback();
+                    }
+
+                    if (msg.serverContent && msg.serverContent.modelTurn && msg.serverContent.modelTurn.parts) {
+                        for (const part of msg.serverContent.modelTurn.parts) {
+                            if (part.inlineData && part.inlineData.mimeType.includes("audio")) {
+                                queueAudio(part.inlineData.data);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    log(`⚠️ Datos no procesados: ${e.message}`, 'warning');
+                }
+            };
+
+            ws.onclose = (e) => log(`🚨 WebSocket cerrado (Code: ${e.code})`, 'error');
+        }
+
+        // --- MOTOR DE REPRODUCCIÓN FLUIDA ---
+        function initAudioPlayback() {
+            if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+        }
+
+        async function queueAudio(base64Data) {
+            if (audioContext.state === 'suspended') await audioContext.resume();
+
+            const binary = atob(base64Data);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+            const pcm16 = new Int16Array(bytes.buffer);
+            const float32 = new Float32Array(pcm16.length);
+            for (let i = 0; i < pcm16.length; i++) float32[i] = pcm16[i] / 0x7FFF;
+
+            const buffer = audioContext.createBuffer(1, float32.length, 24000);
+            buffer.getChannelData(0).set(float32);
+
+            const source = audioContext.createBufferSource();
+            source.buffer = buffer;
+            source.connect(audioContext.destination);
+
+            if (nextPlayTime < audioContext.currentTime) {
+                nextPlayTime = audioContext.currentTime;
+            }
+            source.start(nextPlayTime);
+            nextPlayTime += buffer.duration;
+            log('🔊 Fragmento de audio reproducido fluidamente.', 'info');
+        }
+
+        // --- MOTOR DEL MICRÓFONO ---
+        async function startMicrophone() {
+            try {
+                if (!audioContext) initAudioPlayback();
+                if (audioContext.state === 'suspended') await audioContext.resume();
+
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                micSource = audioContext.createMediaStreamSource(stream);
+
+                // Procesador para 16000Hz simulado (ScriptProcessor es más fácil para HTML estático sin worklets)
+                processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+                processor.onaudioprocess = (e) => {
+                    if (ws.readyState !== WebSocket.OPEN) return;
+
+                    const float32Data = e.inputBuffer.getChannelData(0);
+                    // Remuestreo simple y conversión a PCM 16-bit
+                    const pcm16 = new Int16Array(float32Data.length);
+                    for (let i = 0; i < float32Data.length; i++) {
+                        pcm16[i] = Math.max(-1, Math.min(1, float32Data[i])) * 0x7FFF;
+                    }
+
+                    const bytes = new Uint8Array(pcm16.buffer);
+                    let binary = '';
+                    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+                    const base64Data = btoa(binary);
+
+                    ws.send(JSON.stringify({
+                        realtimeInput: {
+                            audio: {
+                                mimeType: "audio/pcm;rate=16000",
+                                data: base64Data
+                            }
+                        }
+                    }));
+                };
+
+                micSource.connect(processor);
+                processor.connect(audioContext.destination);
+
+                document.getElementById('btnStartMic').disabled = true;
+                document.getElementById('btnStopMic').disabled = false;
+                log('🎤 Micrófono transmitiendo a Gemini...', 'success');
+            } catch (e) {
+                log(`🚨 Error al usar micrófono: ${e.message}`, 'error');
+            }
+        }
+
+        function stopMicrophone() {
+            if (processor) processor.disconnect();
+            if (micSource) micSource.disconnect();
+            document.getElementById('btnStartMic').disabled = false;
+            document.getElementById('btnStopMic').disabled = true;
+            log('🔇 Micrófono silenciado.', 'warning');
+        }
+    </script>
+
+
+
+
+</body>
+
+</html>

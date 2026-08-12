@@ -155,14 +155,14 @@ export class VADAccumulator {
  */
 export class VadConfigManager {
   private configCache: Record<string, number | string> = {
-    vad_base_threshold: 0.62,
+    vad_base_threshold: 0.66,
     vad_min_frames: 3,
-    vad_noise_boost: 0.15,
+    vad_noise_boost: 0.25,
     vad_ignore_audio_until: 500,
-    vad_ai_speaking_window: 250,
+    vad_ai_speaking_window: 400,
     vad_negative_threshold: 0.45,
     gemini_prefix_pad_ms: 250,
-    gemini_silence_ms: 400,
+    gemini_silence_ms: 250,
     flujo_audio: "continuo",
   };
   private lastFetch: number = 0;

@@ -186,89 +186,41 @@ export async function generarUrlFirmada(fileUrl: string): Promise<string> {
 }
 
 /**
- * Ensambla dos buffers μ-law mono en un WAV estéreo PCM 16-bit usando fluent-ffmpeg.
+ * Ensambla dos buffers L16 16kHz mono en un WAV estéreo PCM 16-bit en memoria pura sin ffmpeg.
  * Canal izq = cliente, canal der = IA.
- * Output: WAV estéreo 16-bit PCM 8kHz.
+ * Output: WAV estéreo 16-bit PCM 16kHz.
  */
 function ensamblarEstereoFFmpeg(inbound: Buffer, outbound: Buffer): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    // Headers WAV temporales μ-law 8kHz mono para cada canal
-    const headerMono = (dataLen: number) => {
-      const h = Buffer.alloc(44);
-      h.write("RIFF", 0);
-      h.writeUInt32LE(36 + dataLen, 4);
-      h.write("WAVE", 8);
-      h.write("fmt ", 12);
-      h.writeUInt32LE(16, 16);
-      h.writeUInt16LE(7, 20); // μ-law
-      h.writeUInt16LE(1, 22); // mono
-      h.writeUInt32LE(8000, 24);
-      h.writeUInt32LE(8000, 28);
-      h.writeUInt16LE(1, 32);
-      h.writeUInt16LE(8, 34);
-      h.write("data", 36);
-      h.writeUInt32LE(dataLen, 40);
-      return h;
-    };
-
-    const leftWav = Buffer.concat([headerMono(inbound.length), inbound]);
-    const rightWav = Buffer.concat([headerMono(outbound.length), outbound]);
-
-    const leftStream = Readable.from(leftWav);
-    const rightStream = Readable.from(rightWav);
-
-    const chunks: Buffer[] = [];
-    const ffmpegCmd = ffmpeg()
-      .input(leftStream)
-      .inputFormat("wav")
-      .input(rightStream)
-      .inputFormat("wav")
-      // Output: PCM 16-bit little-endian, 8kHz, stereo
-      .audioCodec("pcm_s16le")
-      .audioFrequency(8000)
-      .audioChannels(2)
-      // Merge mono inputs into stereo: left=input0, right=input1
-      .outputOptions([
-        "-filter_complex",
-        "[0:a]pan=mono|c0=c0[left];[1:a]pan=mono|c0=c0[right];[left][right]amerge=inputs=2[aout]",
-        "-map", "[aout]",
-        "-ac", "2"
-      ])
-      .format("wav")
-      .on("error", (err) => {
-        logger.warn({ error: err.message }, "ffmpeg stereo assembly falló, usando fallback");
-        // Fallback: interleaving manual μ-law -> PCM16 estéreo
-        const maxLen = Math.max(inbound.length, outbound.length);
-        const stereoMulaw = Buffer.alloc(maxLen * 2);
-        for (let i = 0; i < maxLen; i++) {
-          stereoMulaw[i * 2] = inbound[i] ?? 0;
-          stereoMulaw[i * 2 + 1] = outbound[i] ?? 0;
-        }
-        // Convertir μ-law estéreo a PCM16 estéreo
-        const pcm16 = Buffer.alloc(stereoMulaw.length * 2);
-        const mulawSamples = new Uint8Array(stereoMulaw);
-        for (let i = 0; i < mulawSamples.length; i++) {
-          const pcm = g711.ulawToPCM(Buffer.from([mulawSamples[i]]))[0];
-          pcm16.writeInt16LE(pcm, i * 2);
-        }
-        const fbHeader = Buffer.alloc(44);
-        fbHeader.write("RIFF", 0);
-        fbHeader.writeUInt32LE(36 + pcm16.length, 4);
-        fbHeader.write("WAVE", 8);
-        fbHeader.write("fmt ", 12);
-        fbHeader.writeUInt32LE(16, 16);
-        fbHeader.writeUInt16LE(1, 20); // PCM
-        fbHeader.writeUInt16LE(2, 22); // stereo
-        fbHeader.writeUInt32LE(8000, 24);
-        fbHeader.writeUInt32LE(32000, 28); // byteRate = 8000 * 2 * 2
-        fbHeader.writeUInt16LE(4, 32); // blockAlign = 2 channels * 2 bytes
-        fbHeader.writeUInt16LE(16, 34); // bitsPerSample
-        fbHeader.write("data", 36);
-        fbHeader.writeUInt32LE(pcm16.length, 40);
-        resolve(Buffer.concat([fbHeader, pcm16]));
-      })
-      .on("end", () => resolve(Buffer.concat(chunks)))
-      .pipe()
-      .on("data", (chunk: Buffer) => chunks.push(chunk));
+  return new Promise((resolve) => {
+    // Both inbound and outbound are 16-bit PCM at 16kHz (2 bytes per sample).
+    const maxLen = Math.max(inbound.length, outbound.length);
+    const maxSamples = Math.floor(maxLen / 2);
+    
+    const pcm16 = Buffer.alloc(maxSamples * 4); // 4 bytes per stereo sample (2 channels * 2 bytes)
+    
+    for (let i = 0; i < maxSamples; i++) {
+      const inSample = i * 2 + 1 < inbound.length ? inbound.readInt16LE(i * 2) : 0;
+      const outSample = i * 2 + 1 < outbound.length ? outbound.readInt16LE(i * 2) : 0;
+      
+      pcm16.writeInt16LE(inSample, i * 4);
+      pcm16.writeInt16LE(outSample, i * 4 + 2);
+    }
+    
+    const header = Buffer.alloc(44);
+    header.write("RIFF", 0);
+    header.writeUInt32LE(36 + pcm16.length, 4);
+    header.write("WAVE", 8);
+    header.write("fmt ", 12);
+    header.writeUInt32LE(16, 16);
+    header.writeUInt16LE(1, 20); // PCM
+    header.writeUInt16LE(2, 22); // stereo
+    header.writeUInt32LE(16000, 24); // sample rate 16000
+    header.writeUInt32LE(16000 * 2 * 2, 28); // byteRate = 16000 * 2 channels * 2 bytes
+    header.writeUInt16LE(4, 32); // blockAlign = 4
+    header.writeUInt16LE(16, 34); // bitsPerSample = 16
+    header.write("data", 36);
+    header.writeUInt32LE(pcm16.length, 40);
+    
+    resolve(Buffer.concat([header, pcm16]));
   });
 }

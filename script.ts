@@ -1,0 +1,1 @@
+import { PrismaClient } from '@prisma/client'; const prisma = new PrismaClient(); async function main() { console.log('Recordings:', await prisma.callRecording.findMany()); console.log('Metrics:', await prisma.callMetric.findMany({ take: 3, orderBy: { createdAt: 'desc' } })); } main().finally(() => prisma.$disconnect());

@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Extractor de Último Fotograma</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .card {
+      background: #1e293b;
+      border-radius: 16px;
+      padding: 28px;
+      width: 100%;
+      max-width: 560px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+    }
+    h1 { font-size: 20px; margin-bottom: 6px; }
+    p.sub { color: #94a3b8; font-size: 14px; margin-bottom: 20px; }
+    label.drop {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border: 2px dashed #475569;
+      border-radius: 12px;
+      padding: 28px;
+      cursor: pointer;
+      text-align: center;
+      transition: border-color .2s, background .2s;
+    }
+    label.drop:hover, label.drop.dragover { border-color: #38bdf8; background: #26344d; }
+    label.drop .icon { font-size: 32px; }
+    label.drop .hint { font-size: 13px; color: #94a3b8; }
+    input[type="file"] { display: none; }
+    .preview { margin-top: 20px; }
+    .preview video, .preview canvas {
+      width: 100%;
+      border-radius: 10px;
+      background: #000;
+    }
+    .actions { margin-top: 16px; display: flex; gap: 10px; }
+    button {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #download {
+      background: #0ea5e9;
+      color: #fff;
+    }
+    #download:disabled { background: #334155; color: #64748b; cursor: not-allowed; }
+    #again {
+      background: #334155;
+      color: #e2e8f0;
+    }
+    .status { margin-top: 14px; font-size: 13px; color: #fbbf24; min-height: 18px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Extractor de último fotograma</h1>
+    <p class="sub">Sube un video, se captura el último frame y descárgalo en PNG.</p>
+
+    <label class="drop" id="dropZone">
+      <span class="icon">🎬</span>
+      <span><strong>Sube tu video</strong></span>
+      <span class="hint">Click aquí o arrastra el archivo (mp4, webm, mov…)</span>
+    </label>
+    <input type="file" id="videoInput" accept="video/*">
+
+    <div class="preview" id="preview" hidden>
+      <video id="video" muted playsinline></video>
+      <canvas id="canvas" hidden></canvas>
+      <div class="actions">
+        <button id="download" disabled>Descargar PNG</button>
+        <button id="again">Otro video</button>
+      </div>
+    </div>
+
+    <div class="status" id="status"></div>
+  </div>
+
+  <script>
+    const dropZone = document.getElementById('dropZone');
+    const videoInput = document.getElementById('videoInput');
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const downloadBtn = document.getElementById('download');
+    const againBtn = document.getElementById('again');
+    const status = document.getElementById('status');
+
+    dropZone.addEventListener('click', () => videoInput.click());
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file && file.type.startsWith('video/')) loadVideo(file);
+      else status.textContent = '⚠️ Ese archivo no parece ser un video.';
+    });
+
+    videoInput.addEventListener('change', () => {
+      const file = videoInput.files[0];
+      if (file) loadVideo(file);
+    });
+
+    function loadVideo(file) {
+      status.textContent = '⏳ Cargando video…';
+      video.src = URL.createObjectURL(file);
+      video.addEventListener('loadedmetadata', () => {
+        status.textContent = '⏳ Buscando el último frame…';
+        video.currentTime = Math.max(0, video.duration - 0.05);
+      }, { once: true });
+      video.addEventListener('seeked', () => {
+        captureFrame();
+      }, { once: true });
+    }
+
+    function captureFrame() {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      document.getElementById('preview').hidden = false;
+      canvas.hidden = false;
+      video.hidden = true;
+      downloadBtn.disabled = false;
+      status.textContent = '✅ Último frame capturado, listo para descargar.';
+    }
+
+    downloadBtn.addEventListener('click', () => {
+      const a = document.createElement('a');
+      a.href = canvas.toDataURL('image/png');
+      a.download = 'ultimo-frame.png';
+      a.click();
+    });
+
+    againBtn.addEventListener('click', () => {
+      video.pause();
+      video.src = '';
+      video.hidden = false;
+      canvas.hidden = true;
+      downloadBtn.disabled = true;
+      document.getElementById('preview').hidden = true;
+      videoInput.value = '';
+      status.textContent = '';
+    });
+  </script>
+</body>
+</html>

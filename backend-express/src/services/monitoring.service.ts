@@ -129,7 +129,7 @@ async function obtenerUmbrales(): Promise<{ cpu: number; ram: number; latencia: 
   return {
     cpu: parseFloat(cpu?.valor ?? "85"),
     ram: parseFloat(ram?.valor ?? "90"),
-    latencia: parseInt(lat?.valor ?? "2500"),
+    latencia: parseInt(lat?.valor ?? "5000"),
   };
 }
 

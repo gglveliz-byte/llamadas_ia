@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { derivarIdiomaDeRegion } from "@/lib/paises";
 
 /**
  * GET /api/business-settings?userId=...
@@ -15,7 +16,8 @@ export async function GET(req: NextRequest) {
       settings: {
         userId,
         aiLanguage: "es",
-        aiVoice: "Puck",
+        aiVoice: "Dipper",
+        aiRegion: "MX-es",
         bookingMode: "hours",
         defaultDurationMinutes: 30,
         checkInTime: "15:00",
@@ -60,6 +62,12 @@ export async function PATCH(req: NextRequest) {
   if (!userId) return NextResponse.json({ error: "userId requerido" }, { status: 400 });
 
   const data: Record<string, unknown> = { ...updates };
+
+  // El idioma SIEMPRE se deriva del acento regional (nunca se configura libre):
+  // si llega aiRegion, forzamos aiLanguage coherente con ese acento.
+  if (typeof data.aiRegion === "string") {
+    data.aiLanguage = derivarIdiomaDeRegion(data.aiRegion);
+  }
 
   // Verificar si existe; si no, crear
   const existe = await db.businessSettings.findUnique({ where: { userId } });

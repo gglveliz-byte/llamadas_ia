@@ -5,6 +5,8 @@ import { db } from "../models/database.pool";
 import { guardarContexto, obtenerContextoNegocio } from "../services/rag.service";
 import { emitirSSE } from "../sse/events.emitter";
 import { logger } from "../utils/logger";
+import { normalizarVoz } from "../utils/voices";
+import { obtenerRegion, derivarIdiomaDeRegion, HUMANIZACION_BASE } from "../utils/region";
 import { tieneVozPorEnergia } from "../services/vad.service";
 
 const MODELO = process.env.GEMINI_MODEL || "models/gemini-3.1-flash-live-preview";
@@ -296,9 +298,10 @@ async function iniciarSesionGemini(sesion: SesionSimulador, callSid: string, cer
   try {
     const contexto = await obtenerContextoNegocio(sesion.userId);
     const settings = await db.businessSettings.findUnique({ where: { userId: sesion.userId } });
-    const idioma = settings?.aiLanguage || "es";
-    const systemPrompt = construirPromptEntrevista(contexto, idioma);
-    const aiVoice = settings?.aiVoice || "Puck";
+    const idioma = derivarIdiomaDeRegion(settings?.aiRegion) || "es";
+    const region = obtenerRegion(settings?.aiRegion);
+    const systemPrompt = construirPromptEntrevista(contexto, idioma, region);
+    const aiVoice = normalizarVoz(settings?.aiVoice);
 
     // Si ya había una sesión Gemini viva (reintento / "iniciar" duplicado),
     // cerrarla antes para que no queden dos bots respondiendo a la vez.
@@ -324,6 +327,7 @@ async function iniciarSesionGemini(sesion: SesionSimulador, callSid: string, cer
           generationConfig: {
             responseModalities: ["AUDIO"],
             speechConfig: {
+              languageCode: region.languageCode,
               voiceConfig: {
                 prebuiltVoiceConfig: {
                   voiceName: aiVoice
@@ -443,12 +447,23 @@ async function iniciarSesionGemini(sesion: SesionSimulador, callSid: string, cer
   }
 }
 
-function construirPromptEntrevista(contexto: string, idioma: string): string {
+function construirPromptEntrevista(contexto: string, idioma: string, region: { snippet: string }): string {
   const tieneContexto = contexto && contexto.length > 10;
 
   if (tieneContexto) {
-    return `
+  return `
 Eres un asistente profesional encargado de configurar los detalles de un negocio para un sistema de inteligencia artificial.
+
+${HUMANIZACION_BASE}
+
+## MENTALIDAD REGIONAL
+${region.snippet}
+
+
+${HUMANIZACION_BASE}
+
+## MENTALIDAD REGIONAL
+${region.snippet}
 
 ## INSTRUCCIONES
 - Empieza la interacción diciendo exactamente: "Hola un gusto, te ayudaré a configurar tu negocio, todo lo que se hable en esta entrevista, es la información que le diré a tus clientes al responder tus llamadas, entonces comienzo a preguntarte sobre tu negocio ¿está bien?"

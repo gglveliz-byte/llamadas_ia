@@ -96,6 +96,10 @@ interface SesionLlamada {
     grabacionActiva: boolean;
   } | null;
   alertaMediaSinGemini?: boolean;
+  esperandoRespuestaIA?: boolean;
+  inactividadWatchdog?: ReturnType<typeof setInterval> | null;
+  ws?: import("ws");
+  inactividadAvisoEnviado?: boolean;
 }
 
 const sesionesActivas = new Map<string, SesionLlamada>();
@@ -103,6 +107,10 @@ const sesionesActivas = new Map<string, SesionLlamada>();
 // Pre-roll de ~250ms de PCM16 16kHz (250ms * 16000 muestras/s * 2 bytes) para
 // el modo "gated": se vacía al detectar habla para no perder el arranque.
 const PRE_ROLL_MAX_BYTES = 250 * 16000 * 2 / 1000;
+
+// Buffer de inicio de ~3s de PCM16 16kHz: retiene el audio del llamante mientras
+// la sesión de Gemini se inicializa, para no perder el arranque de la llamada.
+const INIT_BUFFER_MAX_BYTES = 3 * 16000 * 2;
 
 /**
  * Registra el handler en el WebSocket server.
@@ -123,18 +131,6 @@ export function registrarTelnyxStreamHandler(wss: import("ws").WebSocketServer):
 
     logger.info({ callControlId, userId }, "WebSocket Telnyx Stream conectado");
     incrementarLlamadasActivas();
-    await incrementarConcurrenciaTelnyx();
-
-    // Verificar saldo antes de iniciar
-    const saldoOk = await verificarSaldo(userId);
-    if (!saldoOk) {
-      logger.warn({ callControlId, userId }, "Llamada rechazada por saldo insuficiente");
-      ws.close(1011, "Saldo insuficiente");
-      return;
-    }
-
-    // Cargar settings del negocio
-    const settings = await db.businessSettings.findUnique({ where: { userId } });
 
     const sesion: SesionLlamada = {
       callControlId,
@@ -153,17 +149,17 @@ export function registrarTelnyxStreamHandler(wss: import("ws").WebSocketServer):
       preRollBytes: 0,
       ultimaActividadVoz: Date.now(),
       timeoutFinTurno: null,
-      grabacionActiva: settings?.grabacionActiva ?? false,
+      grabacionActiva: false,
       finalizada: false,
       transcripts: [],
-      settings: settings
-        ? {
-            aiLanguage: settings.aiLanguage,
-            grabacionActiva: settings.grabacionActiva,
-          }
-        : null,
+      settings: null,
+      inactividadWatchdog: null,
+      inactividadAvisoEnviado: false,
+      ws,
     };
 
+    // Registrar listeners ANTES de los awaits: el navegador envía 'start'
+    // apenas se abre el socket y no debe perderse (race condition).
     ws.on("message", async (data: Buffer) => {
       let mensaje: StreamMessage;
       try {
@@ -218,6 +214,25 @@ export function registrarTelnyxStreamHandler(wss: import("ws").WebSocketServer):
       decrementarLlamadasActivas();
       decrementarConcurrenciaTelnyx().catch(() => {});
     });
+
+    // Verificar saldo antes de iniciar (después de registrar listeners)
+    await incrementarConcurrenciaTelnyx();
+    const saldoOk = await verificarSaldo(userId);
+    if (!saldoOk) {
+      logger.warn({ callControlId, userId }, "Llamada rechazada por saldo insuficiente");
+      ws.close(1011, "Saldo insuficiente");
+      return;
+    }
+
+    // Cargar settings del negocio (manejarStart los recarga si llegan null)
+    const settings = await db.businessSettings.findUnique({ where: { userId } });
+    if (settings) {
+      sesion.settings = {
+        aiLanguage: settings.aiLanguage,
+        grabacionActiva: settings.grabacionActiva,
+      };
+      sesion.grabacionActiva = settings.grabacionActiva;
+    }
   });
 }
 
@@ -270,6 +285,16 @@ async function manejarStart(
 
   if (sesion.sesionGemini) {
     logger.info(`[STREAM TELNYX] 🤖 Sesión de Gemini creada exitosamente. Iniciando loop de escucha de Gemini...`);
+    // Volcar el audio buffereado durante la inicialización (~3s) para no perder
+    // el arranque de la llamada.
+    if (sesion.preRoll.length > 0) {
+      logger.info({ callControlId, chunks: sesion.preRoll.length }, "[STREAM TELNYX] Volcando audio buffereado a Gemini");
+      for (const chunk of sesion.preRoll) {
+        enviarPCMAGemini(sesion, chunk);
+      }
+      sesion.preRoll = [];
+      sesion.preRollBytes = 0;
+    }
     // Iniciar loop de recepción de mensajes de Gemini
     procesarMensajesGemini(
       sesion.sesionGemini,
@@ -278,6 +303,20 @@ async function manejarStart(
       streamId,
       (sid, audio) => {
         sesion.guard?.registrarVozIA();
+        // Calcular duración del audio enviado (16kHz 16-bit PCM = 32 bytes/ms)
+        const bytes = Buffer.from(audio, "base64").length;
+        const duracionMs = Math.round(bytes / 32);
+        
+        // El watchdog cuenta desde el futuro en que la IA termina de hablar
+        const ahora = Date.now();
+        sesion.ultimaActividadVoz = Math.max(sesion.ultimaActividadVoz, ahora) + duracionMs;
+        // Métrica de latencia real: desde el último frame de voz del usuario
+        // hasta el primer chunk de audio de la IA.
+        if (sesion.esperandoRespuestaIA) {
+          sesion.esperandoRespuestaIA = false;
+          const respuestaLatenciaMs = Date.now() - sesion.ultimaActividadVoz;
+          logger.info({ callControlId, respuestaLatenciaMs }, "Respuesta IA - latencia desde fin de turno de usuario");
+        }
         enviarATelnyx(ws, sid, audio);
       },
       (texto, rol, ts) => sesion.transcripts.push({ texto, rol, ts }),
@@ -287,6 +326,40 @@ async function manejarStart(
     ).catch((e) => {
       logger.error({ error: (e as Error).message, callControlId }, "[STREAM TELNYX] ❌ Error en loop de procesarMensajesGemini");
     });
+    
+    // Iniciar watchdog de inactividad (cada 2 segundos)
+    if (sesion.inactividadWatchdog) clearInterval(sesion.inactividadWatchdog);
+    sesion.inactividadWatchdog = setInterval(() => {
+      if (sesion.finalizada || !sesion.sesionGemini) return;
+      
+      const tiempoInactivo = Date.now() - sesion.ultimaActividadVoz;
+      
+      // Hard timeout: 20 segundos
+      if (tiempoInactivo >= 20000) {
+        logger.warn({ callControlId, tiempoInactivo }, "Timeout duro por inactividad (20s). Colgando llamada.");
+        hangupCall(callControlId).catch(() => {});
+        if (callControlId.startsWith("test_")) ws.close(1000, "Timeout inactividad");
+        sesion.finalizada = true;
+        if (sesion.inactividadWatchdog) clearInterval(sesion.inactividadWatchdog);
+      }
+      // Soft timeout: 10 segundos
+      else if (tiempoInactivo >= 10000 && !sesion.inactividadAvisoEnviado) {
+        sesion.inactividadAvisoEnviado = true;
+        logger.info({ callControlId, tiempoInactivo }, "Enviando aviso de inactividad a Gemini (10s)");
+        sesion.sesionGemini.send(JSON.stringify({
+          clientContent: {
+            turns: [
+              {
+                role: "user",
+                parts: [{ text: "[SISTEMA] No has escuchado al cliente en los últimos 10 segundos. Pregúntale de forma breve y natural si sigue ahí o si puedes ayudarle en algo más. Si el cliente no responde después de esto, usa tu herramienta finalizar_llamada para colgar." }]
+              }
+            ],
+            turnComplete: true
+          }
+        }));
+      }
+    }, 2000);
+
   } else {
     logger.warn({ callControlId }, "[STREAM TELNYX] ⚠️ Sesión Gemini no disponible - ejecutando Fallback de Audio");
     try {
@@ -327,9 +400,10 @@ async function manejarStart(
     sesion.isSpeaking = false;
     sesion.preRoll = [];
     sesion.preRollBytes = 0;
+    sesion.esperandoRespuestaIA = true;
     if (sesion.sesionGemini?.readyState === 1) {
       logger.info({ callControlId }, "🛑 Fin de turno de usuario -> IA procesando respuesta (Telnyx)");
-      sesion.sesionGemini.send(JSON.stringify({ clientContent: { turns: [], turnComplete: true } }));
+      sesion.sesionGemini.send(JSON.stringify({ clientContent: { turnComplete: true } }));
     }
   };
 
@@ -361,12 +435,13 @@ async function manejarStart(
     (probs) => {
       if (probs?.isSpeech >= (sesion.vadBase ?? 0.62)) {
         sesion.ultimaActividadVoz = Date.now();
+        sesion.inactividadAvisoEnviado = false; // El cliente habló, resetear aviso
         // Respaldo: si el ruido de red impide el onSpeechEnd, cerrar el turno
         // poco después de la última actividad de voz.
         if (sesion.timeoutFinTurno) {
           clearTimeout(sesion.timeoutFinTurno);
         }
-        sesion.timeoutFinTurno = setTimeout(cerrarTurno, 1400);
+        sesion.timeoutFinTurno = setTimeout(cerrarTurno, 700);
       }
     }
   );
@@ -395,16 +470,24 @@ async function manejarMedia(
 
   // Solo procesar inbound con Gemini
   if (track !== "inbound") return;
-  if (!sesion.sesionGemini) {
-    if (!sesion.alertaMediaSinGemini) {
-      logger.warn({ callControlId }, "[STREAM TELNYX] Recibiendo audio (media) pero Gemini no está inicializado (¿faltó evento start?)");
-      sesion.alertaMediaSinGemini = true; // Solo loguear una vez
-    }
-    return;
-  }
 
   // Telnyx envía L16 16kHz (PCM lineal): passthrough directo a Gemini (PCM 16kHz).
   const pcm16k = await transcodificarTelefoníaAGemini(payload);
+
+  if (!sesion.sesionGemini || sesion.sesionGemini.readyState !== 1) {
+    if (!sesion.alertaMediaSinGemini) {
+      logger.warn({ callControlId }, "[STREAM TELNYX] Recibiendo audio (media) pero Gemini no está inicializado o conectado (¿faltó evento start?)");
+      sesion.alertaMediaSinGemini = true; // Solo loguear una vez
+    }
+    // Bufferear el inicio de la llamada (~3s) para volcarlo a Gemini cuando la
+    // sesión quede lista, en vez de perder el audio del arranque.
+    sesion.preRoll.push(pcm16k);
+    sesion.preRollBytes += pcm16k.length;
+    while (sesion.preRollBytes > INIT_BUFFER_MAX_BYTES && sesion.preRoll.length > 0) {
+      sesion.preRollBytes -= sesion.preRoll.shift()!.length;
+    }
+    return;
+  }
 
   // Detección de barge-in y Voice Activity (Silero VAD - ML, distingue voz de ruido)
   if (sesion.detectorVoz) {
@@ -424,43 +507,50 @@ async function manejarMedia(
   }
 
   // Envío a Gemini como input en tiempo real.
-  // flujo_audio="continuo" (default): TODO el audio del llamante fluye a Gemini;
-  // su auto-VAD + barge-in nativo detectan la interrupción y el fin de palabra
-  // (igual que el simulador, que manda todo el audio sin gate).
-  // flujo_audio="gated": respaldo anti-ruido; buffer pre-roll de ~250ms que se
-  // vacía al detectar habla para no perder el arranque de la palabra.
-  const enviarA = (buffer: Buffer) => {
-    try {
-      if (sesion.sesionGemini.readyState === 1) { // 1 = OPEN
-        sesion.sesionGemini.send(JSON.stringify({
-          realtimeInput: {
-            audio: {
-              mimeType: "audio/pcm;rate=16000",
-              data: buffer.toString("base64")
-            }
-          }
-        }));
-      }
-      sesion.ultimaActividadGemini = Date.now();
-    } catch (e) {
-      logger.error({ error: (e as Error).message, callControlId }, "Error enviando audio a Gemini");
-    }
-  };
+  // Half-duplex: mientras la IA habla (guard.iaHablando), NO se reenvía el audio
+  // del micrófono a Gemini, para que la IA nunca se escuche a sí misma por el eco
+  // del altavoz. El VAD Silero ya se alimentó arriba con el audio mezclado, así
+  // que el barge-in real (interrumpir la reproducción) sigue funcionando. Al
+  // callar la IA (ventana vad_ai_speaking_window), el audio del usuario fluye.
+  // flujo_audio="gated": además, buffer pre-roll de ~250ms que se vacía al
+  // detectar habla para no perder el arranque de la palabra.
+  const iaHablando = sesion.guard?.iaHablando() ?? false;
 
   if (sesion.flujoAudio === "gated") {
-    sesion.preRoll.push(pcm16k);
-    sesion.preRollBytes += pcm16k.length;
-    while (sesion.preRollBytes > PRE_ROLL_MAX_BYTES && sesion.preRoll.length > 0) {
-      sesion.preRollBytes -= sesion.preRoll.shift()!.length;
-    }
-    if (sesion.isSpeaking) {
-      while (sesion.preRoll.length > 0) {
-        enviarA(sesion.preRoll.shift()!);
+    if (!iaHablando) {
+      sesion.preRoll.push(pcm16k);
+      sesion.preRollBytes += pcm16k.length;
+      while (sesion.preRollBytes > PRE_ROLL_MAX_BYTES && sesion.preRoll.length > 0) {
+        sesion.preRollBytes -= sesion.preRoll.shift()!.length;
       }
-      sesion.preRollBytes = 0;
+      if (sesion.isSpeaking) {
+        while (sesion.preRoll.length > 0) {
+          enviarPCMAGemini(sesion, sesion.preRoll.shift()!);
+        }
+        sesion.preRollBytes = 0;
+      }
     }
-  } else {
-    enviarA(pcm16k);
+  } else if (!iaHablando) {
+    enviarPCMAGemini(sesion, pcm16k);
+  }
+}
+
+/** Envía un buffer PCM 16kHz 16-bit a la sesión de Gemini como realtimeInput. */
+function enviarPCMAGemini(sesion: SesionLlamada, buffer: Buffer): void {
+  try {
+    if (sesion.sesionGemini?.readyState === 1) { // 1 = OPEN
+      sesion.sesionGemini.send(JSON.stringify({
+        realtimeInput: {
+          audio: {
+            mimeType: "audio/pcm;rate=16000",
+            data: buffer.toString("base64")
+          }
+        }
+      }));
+    }
+    sesion.ultimaActividadGemini = Date.now();
+  } catch (e) {
+    logger.error({ error: (e as Error).message, callControlId: sesion.callControlId }, "Error enviando audio a Gemini");
   }
 }
 
@@ -485,14 +575,29 @@ async function finalizarLlamada(callControlId: string, sesion: SesionLlamada): P
     }
 
     // 3. Métricas
-    await db.callMetric.updateMany({
-      where: { callSid: callControlId },
-      data: {
-        fin: new Date(),
-        duracionSegundos,
-        cobroAplicado: monto,
-      },
-    });
+    const metricCount = await db.callMetric.count({ where: { callSid: callControlId } });
+    if (metricCount === 0) {
+      await db.callMetric.create({
+        data: {
+          callSid: callControlId,
+          userId: sesion.userId,
+          callerNumber: "Prueba Web",
+          inicio: new Date(sesion.inicio),
+          fin: new Date(),
+          duracionSegundos,
+          cobroAplicado: monto,
+        }
+      });
+    } else {
+      await db.callMetric.updateMany({
+        where: { callSid: callControlId },
+        data: {
+          fin: new Date(),
+          duracionSegundos,
+          cobroAplicado: monto,
+        },
+      });
+    }
 
     // 4. Persistir transcript de la llamada (solo IA por ahora - sin STT usuario)
     if (sesion.transcripts.length > 0) {
@@ -533,6 +638,10 @@ async function finalizarLlamada(callControlId: string, sesion: SesionLlamada): P
       clearTimeout(sesion.timeoutFinTurno);
       sesion.timeoutFinTurno = null;
     }
+    if (sesion.inactividadWatchdog) {
+      clearInterval(sesion.inactividadWatchdog);
+      sesion.inactividadWatchdog = null;
+    }
     sesion.detectorVoz?.liberar();
     sesion.detectorVoz = null;
     sesionesActivas.delete(callControlId);
@@ -563,4 +672,18 @@ function enviarClearATelnyx(ws: WebSocket, _streamId: string): void {
 
 export function obtenerLlamadasActivasTelnyx(): number {
   return sesionesActivas.size;
+}
+
+export function cerrarLlamadaWebSocket(callControlId: string): void {
+  const sesion = sesionesActivas.get(callControlId);
+  if (sesion && sesion.ws) {
+    sesion.ws.close(1000, "IA solicitó finalizar la llamada");
+  }
+}
+
+export function obtenerTiempoRestanteAudio(callControlId: string): number {
+  const sesion = sesionesActivas.get(callControlId);
+  if (!sesion) return 0;
+  const restante = sesion.ultimaActividadVoz - Date.now();
+  return Math.max(0, restante);
 }

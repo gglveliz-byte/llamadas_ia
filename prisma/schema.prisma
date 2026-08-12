@@ -40,7 +40,8 @@ model User {
 model BusinessSettings {
   userId                 String   @id @db.Uuid
   aiLanguage             String   @default("es")
-  aiVoice                String   @default("Puck")
+  aiVoice                String   @default("Dipper")
+  aiRegion               String   @default("es-MX")
   mensajeSaludo          String?
   bookingMode            String   @default("hours")
   defaultDurationMinutes Int      @default(30)

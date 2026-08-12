@@ -35,7 +35,7 @@ export async function getRedis() {
       };
       client.once("ready", () => fin(true));
       client.once("error", () => fin(false));
-      setTimeout(() => fin(false), 3000);
+      setTimeout(() => fin(false), 200);
     });
     if (conectado) {
       redisClient = client;
@@ -43,8 +43,8 @@ export async function getRedis() {
       return redisClient;
     }
     client.disconnect();
-    // Cooldown: no reintentar conexión en cada request durante 30s
-    redisFallbackHasta = Date.now() + 30000;
+    // Cooldown: no reintentar conexión en cada request durante 5 minutos
+    redisFallbackHasta = Date.now() + 300000;
     logger.warn("Redis no disponible - usando memory cache");
     return null;
   } catch (e) {

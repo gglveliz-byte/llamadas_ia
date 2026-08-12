@@ -68,8 +68,29 @@ app.use(helmet({
 }));
 
 // Middlewares
+const orígenesPermitidos = (() => {
+  const base = process.env.DOMINIO_FRONTEND;
+  const orígenes = base ? [base] : [];
+  if (process.env.NODE_ENV !== "production") {
+    orígenes.push(
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+      "http://localhost:5500",
+      "http://127.0.0.1:5500",
+      "http://localhost:5173",
+    );
+  }
+  return orígenes;
+})();
+
 app.use(cors({
-  origin: process.env.DOMINIO_FRONTEND,
+  origin(origin, callback) {
+    if (!origin || orígenesPermitidos.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("Origen no permitido por CORS"));
+    }
+  },
   credentials: true,
 }));
 app.use(express.raw({ type: "application/xml" }));

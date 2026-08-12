@@ -270,7 +270,9 @@ export async function agendarCita(params: {
         fechaFormateada,
         params.servicio
       );
-      await enviarEmail({ to: params.customerEmail, ...tplCliente });
+      void enviarEmail({ to: params.customerEmail, ...tplCliente }).catch((err: unknown) =>
+        logger.warn({ error: (err as Error).message, citaId: cita.id, to: params.customerEmail }, "Error enviando email al cliente")
+      );
     }
 
     // Email al dueño del negocio
@@ -280,7 +282,9 @@ export async function agendarCita(params: {
         fechaFormateada,
         params.servicio
       );
-      await enviarEmail({ to: user.email, ...tplDueno });
+      void enviarEmail({ to: user.email, ...tplDueno }).catch((err: unknown) =>
+        logger.warn({ error: (err as Error).message, citaId: cita.id, to: user.email }, "Error enviando email al dueño")
+      );
     }
   } catch (e) {
     logger.warn({ error: (e as Error).message, citaId: cita.id }, "Error enviando emails de cita");
@@ -437,4 +441,76 @@ export async function consultarDisponibilidad(
     : null;
 
   return { ocupadas, disponibles, disponibles_iso: disponiblesIso, fecha: date, dia, abierto, horario: horarioTexto };
+}
+
+/**
+ * Reagenda una cita (agenda la nueva y, si tiene éxito, cancela la anterior).
+ * Cumple spec 7.6 - tool `reagendar_cita`.
+ */
+export async function reagendarCita(params: {
+  userId: string;
+  customerName: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  oldDate?: string;
+  newStartTime: string;
+  newEndTime?: string;
+  durationMinutes?: number;
+  recursoId?: string;
+  servicio?: string;
+  notes?: string;
+}): Promise<any> {
+  // 1. Intentar agendar la nueva cita
+  const resultadoAgendar = await agendarCita({
+    userId: params.userId,
+    customerName: params.customerName,
+    customerPhone: params.customerPhone,
+    customerEmail: params.customerEmail,
+    startTime: new Date(params.newStartTime),
+    endTime: params.newEndTime ? new Date(params.newEndTime) : undefined,
+    durationMinutes: params.durationMinutes,
+    recursoId: params.recursoId,
+    servicio: params.servicio,
+    notes: params.notes,
+  });
+
+  if (resultadoAgendar.ok === false) {
+    // Si falla el agendamiento, retornamos el error para no cancelar la original
+    return resultadoAgendar;
+  }
+
+  // 2. Si se agendó con éxito, cancelar la cita anterior
+  const where: any = {
+    userId: params.userId,
+    status: "agendado",
+    customerName: { contains: params.customerName },
+    id: { not: resultadoAgendar.cita?.id } // No cancelar la que acabamos de crear
+  };
+
+  if (params.customerPhone) {
+    where.customerPhone = { contains: params.customerPhone };
+  }
+
+  const citasAntiguas = await db.appointment.findMany({ where });
+  let aCancelar = citasAntiguas;
+  if (params.oldDate) {
+    const fecha = new Date(params.oldDate);
+    aCancelar = citasAntiguas.sort(
+      (a, b) =>
+        Math.abs(a.startTime.getTime() - fecha.getTime()) -
+        Math.abs(b.startTime.getTime() - fecha.getTime())
+    );
+    aCancelar = aCancelar.slice(0, 1);
+  }
+
+  let canceladas = 0;
+  for (const cita of aCancelar) {
+    await db.appointment.update({
+      where: { id: cita.id },
+      data: { status: "cancelado" },
+    });
+    canceladas++;
+  }
+
+  return { ok: true, cita: resultadoAgendar.cita, canceladas };
 }

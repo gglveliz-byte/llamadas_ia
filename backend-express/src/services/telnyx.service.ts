@@ -548,7 +548,11 @@ export async function answerCall(callControlId: string, clientState?: string): P
  * Call Control API - Cuelga llamada.
  * POST /v2/calls/{call_control_id}/actions/hangup
  */
-export async function hangupCall(callControlId: string): Promise<TelnyxCallControl> {
+export async function hangupCall(callControlId: string): Promise<TelnyxCallControl | null> {
+  if (callControlId.startsWith("test_")) {
+    logger.debug({ callControlId }, "Simulador: hangupCall ignorado para llamada de prueba");
+    return null;
+  }
   const data = await telnyxFetch<{ data: TelnyxCallControl }>(
     `/calls/${callControlId}/actions/hangup`,
     { method: "POST" }

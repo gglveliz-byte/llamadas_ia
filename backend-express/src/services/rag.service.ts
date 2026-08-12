@@ -50,12 +50,12 @@ export async function obtenerContextoNegocio(userId: string): Promise<string> {
   if (!memoria) {
     const settings = await db.businessSettings.findUnique({ where: { userId } });
     const contexto = settings?.systemPromptContext ?? "";
-    await cacheSet(cacheKey, contexto, 60);
+    await cacheSet(cacheKey, contexto, 86400); // 24 horas
     return contexto;
   }
 
   const contexto = memoria.rawContext;
-  await cacheSet(cacheKey, contexto, 60);
+  await cacheSet(cacheKey, contexto, 86400); // 24 horas
   return contexto;
 }
 
@@ -84,7 +84,7 @@ export async function obtenerContextoRAG(
 
     if (results && results.length > 0) {
       const contexto = results.map((r) => r.rawContext).join("\n---\n");
-      await cacheSet(cacheKey, contexto, 60);
+      await cacheSet(cacheKey, contexto, 86400); // Cache 24 horas
       return contexto;
     }
   } catch (e) {

@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
         },
         body: JSON.stringify({
           to: email,
-          subject: "Recuperación de contraseña - VozIA",
+          subject: "Recuperación de contraseña - Voice IA",
           text: `Haz clic en el siguiente enlace para recuperar tu contraseña: ${frontendUrl}/reset-password?token=${resetToken}`,
           html: `<p>Haz clic en el siguiente enlace para recuperar tu contraseña: <br><br> <a href="${frontendUrl}/reset-password?token=${resetToken}">Restablecer Contraseña</a></p>`
         }),

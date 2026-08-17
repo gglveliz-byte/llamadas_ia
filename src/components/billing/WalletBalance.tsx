@@ -42,7 +42,7 @@ export function WalletBalance({ saldo, porcentaje, onClick, compact }: WalletBal
         <div className={cn("text-xl font-bold", color)}>
           ${Number(saldo).toFixed(2)}
         </div>
-        <div className="text-[10px] text-muted-foreground mt-0.5">USD · Click para recargar</div>
+        <div className="text-[10px] text-muted-foreground mt-0.5">USD</div>
       </button>
     );
   }

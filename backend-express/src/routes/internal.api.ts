@@ -363,7 +363,7 @@ internalRouter.post("/telnyx/purchase-number", async (req, res) => {
       // Si no existe, crearemos una para la subcuenta o cuenta root según corresponda.
       if (!connectionId) {
         const conn = await (await import("../services/telnyx.service")).createVoiceConnection(
-          "VozIA Streaming",
+          "Voice IA Streaming",
           `${process.env.DOMINIO_EXPRESS}/webhooks/telnyx/voice`,
           isRootFlow ? undefined : (childAccountId || undefined)
         );
@@ -421,6 +421,61 @@ internalRouter.post("/telnyx/purchase-number", async (req, res) => {
 });
 
 /**
+ * POST /internal/telnyx/sync-numbers
+ * Sincroniza los números activos del usuario en la BD contra Telnyx.
+ * Si un número activo en la BD ya no existe en Telnyx, se marca como inactivo y liberado.
+ */
+const syncNumbersSchema = z.object({ userId: z.string().uuid() });
+
+internalRouter.post("/telnyx/sync-numbers", async (req, res) => {
+  const parsed = syncNumbersSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Datos inválidos" });
+  }
+
+  try {
+    const { userId } = parsed.data;
+    
+    // 1. Obtener los números activos en nuestra BD
+    const localNumbers = await db.phoneNumber.findMany({
+      where: { userId, isActive: true },
+    });
+
+    if (localNumbers.length === 0) {
+      return res.json({ synced: 0, deactivated: 0 });
+    }
+
+    let deactivatedCount = 0;
+    
+    // Importamos dinámicamente para no ensuciar el global si no hace falta
+    const { getOwnedNumberByPhone } = await import("../services/telnyx.service");
+
+    // 2. Por cada número activo localmente, consultar si existe en Telnyx
+    for (const localNum of localNumbers) {
+      const telnyxNum = await getOwnedNumberByPhone(localNum.phoneNumber);
+      
+      // Si Telnyx devuelve null, significa que fue eliminado del portal
+      if (!telnyxNum) {
+        await db.phoneNumber.update({
+          where: { id: localNum.id },
+          data: { 
+            isActive: false, 
+            releasedAt: new Date() // Se marca como liberado/eliminado
+          },
+        });
+        logger.info({ phoneNumber: localNum.phoneNumber, userId }, "Número marcado como inactivo (eliminado en Telnyx)");
+        deactivatedCount++;
+      }
+    }
+
+    res.json({ synced: localNumbers.length, deactivated: deactivatedCount });
+  } catch (e) {
+    logger.error({ error: (e as Error).message }, "Error en sync-numbers");
+    res.status(500).json({ error: "Error interno" });
+  }
+});
+
+/**
  * POST /internal/rentas/procesar-usuario
  * Procesa rentas vencidas del usuario (cobro, suspensión, liberación,
  * reactivación). Lo llama Next tras cada recarga Whop para reactivar
@@ -467,7 +522,7 @@ internalRouter.post("/telnyx/outbound-call", async (req, res) => {
     return res.status(400).json({ error: "El número de origen no es tuyo o no está activo." });
   }
 
-  if (!(await verificarSaldo(userId))) {
+  if (!(await verificarSaldo(userId, to))) {
     return res.status(402).json({ error: "Saldo insuficiente para iniciar una llamada saliente." });
   }
 

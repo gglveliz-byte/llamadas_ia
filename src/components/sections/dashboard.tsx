@@ -348,12 +348,12 @@ export function DashboardSection() {
           </CardContent>
         </Card>
 
-        {/* Actividad reciente */}
+      {/* Actividad reciente */}
         <Card className="panel-wa">
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
               <Activity className="h-4 w-4" />
-              Actividad reciente
+              Historial de Llamadas
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
@@ -364,43 +364,48 @@ export function DashboardSection() {
                 </div>
               ) : (
                 <div className="divide-y divide-border">
-                  {data.transacciones.map((tx) => (
-                    <div key={tx.id} className="p-3 flex items-center gap-3 hover:bg-muted/30">
-                      <div
-                        className={cn(
-                          "h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0",
-                          tx.monto > 0
-                            ? "bg-emerald-500/10 text-emerald-600"
-                            : "bg-red-500/10 text-red-600"
-                        )}
-                      >
-                        {tx.monto > 0 ? (
-                          <TrendingUp className="h-4 w-4" />
-                        ) : (
-                          <TrendingDown className="h-4 w-4" />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium truncate">
-                          {tx.descripcion || tx.tipo}
+                  {data.transacciones
+                    .filter(tx => {
+                      if (tx.tipo === 'ganancia_cliente') return true;
+                      if (tx.tipo === 'debito') {
+                         // Mostrar débito solo si no hay ganancia_cliente para esta misma llamada (ej: B2B sin cobro a cliente)
+                         const tieneGanancia = data.transacciones.some(t => t.tipo === 'ganancia_cliente' && t.callSid === tx.callSid && t.callSid);
+                         return !tieneGanancia;
+                      }
+                      return false;
+                    })
+                    .map((tx) => {
+                    let cleanDesc = tx.descripcion || tx.tipo;
+                    if (cleanDesc.startsWith("Llamada v3:") || cleanDesc.startsWith("Ganancia por cliente final")) {
+                      const match = cleanDesc.match(/-\s*(\d+s)/);
+                      const duracion = match ? ` (${match[1]})` : "";
+                      cleanDesc = `Llamada con IA${duracion}`;
+                    }
+
+                    const isPositive = tx.monto > 0;
+
+                    return (
+                      <div key={tx.id} className="p-3 flex items-center gap-3 hover:bg-muted/30">
+                        <div className={cn("h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0", isPositive ? "bg-emerald-500/10 text-emerald-600" : "bg-purple-500/10 text-purple-600")}>
+                          <PhoneCall className="h-4 w-4" />
                         </div>
-                        <div className="text-xs text-muted-foreground">
-                          {formatDistanceToNow(new Date(tx.createdAt), {
-                            addSuffix: true,
-                            locale: es,
-                          })}
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium truncate">
+                            {cleanDesc}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {formatDistanceToNow(new Date(tx.createdAt), {
+                              addSuffix: true,
+                              locale: es,
+                            })}
+                          </div>
+                        </div>
+                        <div className={cn("text-sm font-bold", isPositive ? "text-emerald-600 tabular-nums" : "text-muted-foreground")}>
+                          {isPositive ? `+$${Math.abs(tx.monto).toFixed(2)}` : "Completada"}
                         </div>
                       </div>
-                      <div
-                        className={cn(
-                          "text-sm font-bold tabular-nums",
-                          tx.monto > 0 ? "text-emerald-600" : "text-red-600"
-                        )}
-                      >
-                        {tx.monto > 0 ? "+" : "-"}${Math.abs(tx.monto).toFixed(2)}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </ScrollArea>

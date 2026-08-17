@@ -31,6 +31,11 @@ async function main() {
     { clave: "precio_alta_numero", valor: "1.00", descripcion: "Precio por defecto de activación de número cuando Telnyx no reporta costo (USD)" },
     { clave: "precio_mes_numero", valor: "1.00", descripcion: "Precio por defecto de renta mensual de número cuando Telnyx no reporta costo (USD)" },
     { clave: "margen_numero_pct", valor: "50", descripcion: "Margen % sobre el costo real del número (activación y renta) para el precio al cliente" },
+    { clave: "precio_minuto_minimo", valor: "0.50", descripcion: "Piso de precio por minuto" },
+    { clave: "fee_instalacion_minimo", valor: "50.00", descripcion: "Fee mínimo de instalación" },
+    { clave: "deposito_retencion_minimo", valor: "10.00", descripcion: "Depósito mínimo para retención" },
+    { clave: "comision_min_fija_default", valor: "0.05", descripcion: "Comisión fija por minuto default para nuevos afiliados ($)" },
+    { clave: "dias_alerta_inactividad", valor: "90", descripcion: "Días sin referir para alertar" },
   ];
 
   for (const c of adminConfigs) {

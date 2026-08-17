@@ -19,6 +19,9 @@ import { telnyxRouter } from "./routes/webhooks.telnyx";
 import { whopRouter } from "./routes/webhooks.whop";
 import { internalRouter } from "./routes/internal.api";
 import { adminRouter } from "./routes/admin.api";
+import { publicRouter } from "./routes/public.api";
+import { affiliateRouter } from "./routes/affiliate.api";
+import { refundRouter } from "./routes/refund.api";
 import { registrarTelnyxStreamHandler } from "./websockets/telnyxStream.handler";
 import { registrarSimuladorHandler } from "./websockets/simulador.handler";
 import { parse } from "url";
@@ -131,6 +134,9 @@ app.use("/webhooks/telnyx", telnyxRouter);
 app.use("/webhooks/whop", whopRouter);
 app.use("/internal", internalRouter);
 app.use("/admin", adminRouter);
+app.use("/admin/refunds", refundRouter);
+app.use("/api/public", cors({ origin: "*" }), publicRouter);
+app.use("/api/affiliate", affiliateRouter);
 
 // SSE endpoint
 // Cumple spec 12.1

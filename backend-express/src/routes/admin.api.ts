@@ -207,77 +207,7 @@ adminRouter.post("/clientes/:id/ajuste", async (req, res) => {
 // PAQUETES CRUD
 // ═══════════════════════════════════════════
 
-const packageSchema = z.object({
-  nombre: z.string().min(1),
-  montoRecarga: z.number().positive(),
-  saldoOtorgado: z.number().positive(),
-  precioPorMinuto: z.number().positive(),
-  precioPorSegundo: z.number().positive().optional(),
-  activo: z.boolean().optional(),
-});
 
-/**
- * GET /admin/packages
- * Lista todos los paquetes de recarga.
- */
-adminRouter.get("/packages", async (req, res) => {
-  try {
-    const paquetes = await db.rechargePackage.findMany({ orderBy: { createdAt: "desc" } });
-    res.json({ paquetes: paquetes.map((p) => ({ ...p, montoRecarga: p.montoRecarga.toNumber(), saldoOtorgado: p.saldoOtorgado.toNumber(), precioPorMinuto: p.precioPorMinuto.toNumber(), precioPorSegundo: p.precioPorSegundo?.toNumber() ?? null })) });
-  } catch (e) {
-    res.status(500).json({ error: "Error al listar paquetes" });
-  }
-});
-
-/**
- * POST /admin/packages
- * Crea un nuevo paquete de recarga.
- */
-adminRouter.post("/packages", async (req, res) => {
-  try {
-    const parsed = packageSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: "Datos inválidos", details: parsed.error.issues });
-    const paquete = await db.rechargePackage.create({ data: parsed.data });
-    logger.info({ paquete: paquete.nombre }, "Paquete creado por admin");
-    res.json({ paquete });
-  } catch (e) {
-    res.status(500).json({ error: "Error al crear paquete" });
-  }
-});
-
-/**
- * PUT /admin/packages/:id
- * Actualiza un paquete existente.
- */
-adminRouter.put("/packages/:id", async (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ error: "ID inválido" });
-    const parsed = packageSchema.partial().safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: "Datos inválidos", details: parsed.error.issues });
-    const paquete = await db.rechargePackage.update({ where: { id }, data: parsed.data });
-    logger.info({ paquete: paquete.nombre }, "Paquete actualizado por admin");
-    res.json({ paquete });
-  } catch (e) {
-    res.status(500).json({ error: "Error al actualizar paquete" });
-  }
-});
-
-/**
- * DELETE /admin/packages/:id
- * Desactiva un paquete (soft delete).
- */
-adminRouter.delete("/packages/:id", async (req, res) => {
-  try {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) return res.status(400).json({ error: "ID inválido" });
-    await db.rechargePackage.update({ where: { id }, data: { activo: false } });
-    logger.info({ packageId: id }, "Paquete desactivado por admin");
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: "Error al desactivar paquete" });
-  }
-});
 
 // ═══════════════════════════════════════════
 // RANKING

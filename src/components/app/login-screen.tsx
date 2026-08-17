@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Phone, Mail, Shield, ArrowRight, Sparkles, Lock, UserPlus, LogIn, AlertCircle, X } from "lucide-react";
+import { Phone, Mail, Shield, ArrowRight, Sparkles, Lock, UserPlus, LogIn, AlertCircle, X, Eye, EyeOff } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import { ApiClient, type Usuario } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ export function LoginScreen() {
   const [forgotModalOpen, setForgotModalOpen] = React.useState(false);
   const [forgotEmail, setForgotEmail] = React.useState("");
   const [forgotLoading, setForgotLoading] = React.useState(false);
+  const [showPassword, setShowPassword] = React.useState(false);
 
   React.useEffect(() => {
     // Check URL params for verification status
@@ -79,6 +80,21 @@ export function LoginScreen() {
           },
           duration: 10000,
         });
+      } else if (msg === "Credenciales inválidas" || msg.includes("inválida")) {
+        // Try affiliate login
+        try {
+          const res = await ApiClient.post<{
+            user: Usuario;
+            token: string;
+            refreshToken: string;
+          }>("/api/auth/affiliate-login", { email, password });
+          setUsuario(res.user);
+          setTokens(res.token, res.refreshToken);
+          setSeccion("afiliado-dashboard");
+          toast.success(`Bienvenido, Afiliado`);
+        } catch (e2) {
+          toast.error("Credenciales inválidas");
+        }
       } else {
         toast.error(msg);
       }
@@ -98,9 +114,14 @@ export function LoginScreen() {
     }
     setLoading(true);
     try {
+      let affiliateSlug: string | undefined = undefined;
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        affiliateSlug = params.get("ref") || undefined;
+      }
       await ApiClient.post<{
         mensaje: string;
-      }>("/api/auth/register", { email, password, businessName: businessName || undefined });
+      }>("/api/auth/register", { email, password, businessName: businessName || undefined, affiliateSlug });
       toast.success("Cuenta creada. Revisa tu email para verificarla.");
       setPassword("");
       setModo("login");
@@ -135,11 +156,11 @@ export function LoginScreen() {
     <div className="min-h-screen flex items-center justify-center bg-background chat-bg p-4">
       <div className="w-full max-w-md space-y-6">
         <div className="text-center space-y-3">
-          <div className="inline-flex h-14 w-14 rounded-full bg-primary items-center justify-center shadow-lg">
-            <Phone className="h-7 w-7 text-primary-foreground" />
+          <div className="inline-flex h-14 w-14 items-center justify-center rounded-full overflow-hidden shadow-lg border border-border/50">
+            <img src="/logotipo.png" alt="Voice IA Logo" className="h-full w-full object-cover" />
           </div>
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">VozIA</h1>
+            <h1 className="text-3xl font-bold tracking-tight">Voice IA</h1>
             <p className="text-sm text-muted-foreground">
               Asistente de voz con IA para tu negocio
             </p>
@@ -153,44 +174,58 @@ export function LoginScreen() {
               {modo === "login" ? "Iniciar sesión" : "Crear cuenta"}
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Correo electrónico</Label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="tu@negocio.com"
-                  className="pl-9"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Contraseña</Label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="••••••••"
-                  className="pl-9"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </div>
-              <button
-                type="button"
-                onClick={() => setForgotModalOpen(true)}
-                className="text-xs text-primary hover:underline self-end"
-              >
-                ¿Olvidé contraseña?
-              </button>
-            </div>
-            {modo === "register" && (
+          <CardContent>
+            <div className="space-y-4">
               <div className="space-y-2">
+                <Label htmlFor="email">Correo electrónico</Label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="tu@negocio.com"
+                    className="pl-9"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                </div>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="password">Contraseña</Label>
+                <div className="relative flex items-center">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    className="pl-9 pr-10"
+                    placeholder="••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setForgotModalOpen(true)}
+                  className="text-xs text-primary hover:underline"
+                >
+                  ¿Olvidé contraseña?
+                </button>
+              </div>
+            </div>
+
+            {modo === "register" && (
+              <div className="space-y-2 mt-4">
                 <Label htmlFor="businessName">Nombre del negocio (opcional)</Label>
                 <Input
                   id="businessName"

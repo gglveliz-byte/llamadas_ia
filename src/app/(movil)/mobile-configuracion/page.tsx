@@ -27,9 +27,9 @@ export default function MobileConfigPage() {
         <Link href="/mobile-dashboard" className="text-muted-foreground">
           <ArrowLeft className="h-5 w-5" />
         </Link>
-        <div>
+        <div className="flex-1 text-center">
           <h1 className="text-lg font-bold">Configuración</h1>
-          <p className="text-xs text-muted-foreground">{usuario?.businessName ?? "VozIA"}</p>
+          <p className="text-xs text-muted-foreground">{usuario?.businessName ?? "Voice IA"}</p>
         </div>
       </header>
 

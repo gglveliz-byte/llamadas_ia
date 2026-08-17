@@ -17,6 +17,7 @@ export const registerSchema = z.object({
   password: passwordSchema,
   businessName: z.string().max(255).optional().default(""),
   businessPhone: z.string().max(50).optional().default(""),
+  affiliateSlug: z.string().max(100).optional(),
 });
 
 export const loginSchema = z.object({

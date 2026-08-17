@@ -69,7 +69,7 @@ export async function enviarEmail(params: EmailParams): Promise<boolean> {
 
   try {
     await t.sendMail({
-      from: `"VozIA" <${process.env.SMTP_USER}>`,
+      from: `"Voice IA" <${process.env.SMTP_USER}>`,
       to: params.to,
       subject: params.subject,
       text: params.text,
@@ -91,13 +91,13 @@ function baseHtml(content: string): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>VozIA</title>
+  <title>Voice IA</title>
 </head>
 <body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f5f5f5;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:40px auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
     <tr>
       <td style="background:#1a1a2e;padding:32px 24px;text-align:center;">
-        <h1 style="margin:0;color:#fff;font-size:28px;font-weight:700;letter-spacing:-0.5px;">VozIA</h1>
+        <h1 style="margin:0;color:#fff;font-size:28px;font-weight:700;letter-spacing:-0.5px;">Voice IA</h1>
         <p style="margin:8px 0 0;color:#a0a0c0;font-size:14px;">Asistente de voz con IA</p>
       </td>
     </tr>
@@ -108,7 +108,7 @@ function baseHtml(content: string): string {
     </tr>
     <tr>
       <td style="background:#f8f9fa;padding:24px;text-align:center;border-top:1px solid #eee;">
-        <p style="margin:0;color:#888;font-size:12px;">© 2024 VozIA. Todos los derechos reservados.</p>
+        <p style="margin:0;color:#888;font-size:12px;">© 2024 Voice IA. Todos los derechos reservados.</p>
         <p style="margin:8px 0 0;color:#aaa;font-size:11px;">Si no solicitaste este email, ignóralo.</p>
       </td>
     </tr>
@@ -140,10 +140,10 @@ export const emailTemplates = {
   registro: (token: string) => {
     const url = `${process.env.DOMINIO_FRONTEND}/verify?token=${token}`;
     return {
-      subject: "Verifica tu cuenta - VozIA",
-      text: `Bienvenido a VozIA.\n\nVerifica tu cuenta con este enlace:\n${url}\n\nSi no creaste esta cuenta, ignora este mensaje.`,
+      subject: "Verifica tu cuenta - Voice IA",
+      text: `Bienvenido a Voice IA.\n\nVerifica tu cuenta con este enlace:\n${url}\n\nSi no creaste esta cuenta, ignora este mensaje.`,
       html: baseHtml(`
-        <h2 style="margin:0 0 16px;color:#1a1a2e;">¡Bienvenido a VozIA!</h2>
+        <h2 style="margin:0 0 16px;color:#1a1a2e;">¡Bienvenido a Voice IA!</h2>
         <p>Gracias por registrarte. Para activar tu cuenta, verifica tu email haciendo clic en el botón:</p>
         ${buttonHtml(url, "Verificar mi cuenta")}
         <p style="margin:24px 0 0;font-size:14px;color:#888;">O copia este enlace en tu navegador:<br><a href="${url}" style="color:#666;word-break:break-all;">${url}</a></p>
@@ -154,7 +154,7 @@ export const emailTemplates = {
   recuperacion: (token: string) => {
     const url = `${process.env.DOMINIO_FRONTEND}/reset?token=${token}`;
     return {
-      subject: "Restablece tu contraseña - VozIA",
+      subject: "Restablece tu contraseña - Voice IA",
       text: `Restablece tu contraseña: ${url}\n\nEste enlace expira en 1 hora.\nSi no solicitaste esto, ignora este mensaje.`,
       html: baseHtml(`
         <h2 style="margin:0 0 16px;color:#1a1a2e;">Restablecer contraseña</h2>
@@ -198,7 +198,7 @@ export const emailTemplates = {
     `),
   }),
   recargaExitosa: (monto: string, saldoNuevo: string) => ({
-    subject: "Recarga exitosa - VozIA",
+    subject: "Recarga exitosa - Voice IA",
     text: `Tu recarga de $${monto} se procesó correctamente. Nuevo saldo: $${saldoNuevo}.`,
     html: baseHtml(`
       <h2 style="margin:0 0 16px;color:#10b981;">¡Recarga Exitosa!</h2>
@@ -241,7 +241,7 @@ export const emailTemplates = {
     `),
   }),
   alertaSistema: (mensaje: string) => ({
-    subject: "⚠️ Alerta de rendimiento - VozIA",
+    subject: "⚠️ Alerta de rendimiento - Voice IA",
     text: mensaje,
     html: baseHtml(`
       <h2 style="margin:0 0 16px;color:#dc2626;">⚠️ Alerta del sistema</h2>

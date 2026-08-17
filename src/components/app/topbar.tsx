@@ -25,11 +25,12 @@ const TITULOS: Record<Seccion, string> = {
   simulador: "Configuración del Negocio",
   salientes: "Llamadas Salientes",
   "admin-clientes": "Admin · Clientes",
-  "admin-tarifas": "Admin · Tarifas",
   "admin-metricas": "Admin · Métricas del Sistema",
   "admin-flujo": "Admin · Flujo de Caja",
   "admin-ranking": "Admin · Ranking",
   "admin-config": "Admin · Configuración Global",
+  "admin-afiliados": "Admin · Afiliados",
+  "afiliado-dashboard": "Panel de Afiliado",
 };
 
 export function Topbar({
@@ -97,22 +98,7 @@ export function Topbar({
             <span className="text-sm font-bold">${Number(walletSaldo).toFixed(2)}</span>
           </button>
         )}
-        {sseConectado !== undefined && (
-          <div
-            className="flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-medium"
-            title={sseConectado ? "En línea" : "Sin conexión"}
-          >
-            <span
-              className={cn(
-                "h-2 w-2 rounded-full",
-                sseConectado ? "bg-emerald-500 animate-pulse" : "bg-slate-400"
-              )}
-            />
-            <span className={cn(sseConectado ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground")}>
-              {sseConectado ? "Live" : "Offline"}
-            </span>
-          </div>
-        )}
+
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
             <Button variant="ghost" size="icon" className="relative">
@@ -155,7 +141,29 @@ export function Topbar({
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium">{n.titulo}</div>
+                          <div className="flex items-center gap-2">
+                            <div className="text-sm font-medium">{n.titulo}</div>
+                            {n.tipo && (
+                              <Badge
+                                variant={
+                                  ["admin", "sistema"].includes(n.tipo.toLowerCase())
+                                    ? "destructive"
+                                    : ["pago", "recarga", "cobro", "renta"].includes(n.tipo.toLowerCase())
+                                    ? "default"
+                                    : ["cita", "cliente"].includes(n.tipo.toLowerCase())
+                                    ? "default"
+                                    : "secondary"
+                                }
+                                className={cn(
+                                  "text-[9px] h-4 px-1 py-0 uppercase tracking-wider",
+                                  ["pago", "recarga", "cobro", "renta"].includes(n.tipo.toLowerCase()) && "bg-emerald-600 text-white hover:bg-emerald-700",
+                                  ["cita", "cliente"].includes(n.tipo.toLowerCase()) && "bg-blue-600 text-white hover:bg-blue-700"
+                                )}
+                              >
+                                {n.tipo}
+                              </Badge>
+                            )}
+                          </div>
                           <div className="text-xs text-muted-foreground mt-0.5">
                             {n.mensaje}
                           </div>

@@ -7,11 +7,11 @@
 import { Router } from "express";
 import { z } from "zod";
 import { Whop } from "@whop/sdk";
-import { acreditarSaldo, reversarSaldo } from "../services/billing.service";
 import { emitirSSE } from "../sse/events.emitter";
 import { logger } from "../utils/logger";
 import { db } from "../models/database.pool";
 import { enviarEmail, emailTemplates } from "../services/email.service";
+import { calcularComisiones, aplicarComisiones } from "../services/commission.service";
 
 export const whopRouter = Router();
 
@@ -54,10 +54,7 @@ whopRouter.post("/", async (req, res) => {
       data: z.object({
         id: z.string(),
         amount_after_fees: z.number().optional(),
-        metadata: z.object({
-          user_id: z.string(),
-          package_id: z.string(),
-        }),
+        metadata: z.record(z.string(), z.any()),
       }),
     });
 
@@ -67,36 +64,114 @@ whopRouter.post("/", async (req, res) => {
         logger.error({ errors: parsed.error.issues, evento }, "Evento Whop mal formado");
         return res.status(200).send("OK");
       }
-      const { id, metadata, amount_after_fees } = parsed.data.data;
-      const userId = metadata.user_id;
-      const packageId = parseInt(metadata.package_id);
+      const metadata = parsed.data.data.metadata;
+      const amountAfterFees = parsed.data.data.amount_after_fees ?? 0;
+      const paymentId = parsed.data.data.id;
 
-      const { saldoNuevo } = await acreditarSaldo(userId, packageId, id, evento.data.amount_after_fees ?? 0);
+      if (metadata.action_type === "installation_fee") {
+        const tenantId = metadata.tenant_id;
+        if (tenantId) {
+          const tenant = await db.user.findUnique({ where: { id: tenantId }, include: { affiliate: true } });
+          if (tenant) {
+            await db.user.update({
+              where: { id: tenantId },
+              data: {
+                installationPaid: true,
+                installationPaidAt: new Date(),
+                installationAmount: amountAfterFees
+              }
+            });
 
-      // Notificar al usuario via SSE
-      emitirSSE(userId, "recarga_exitosa", {
-        paymentId: id,
-        saldoNuevo,
-      });
+            // Repartir fee de instalación con afiliado si existe
+            if (tenant.affiliateId && tenant.affiliate) {
+              const porcentaje = tenant.affiliate.porcentajeInstalacion ? tenant.affiliate.porcentajeInstalacion.toNumber() : 50;
+              const gananciaAfiliado = parseFloat((amountAfterFees * (porcentaje / 100)).toFixed(2));
+              
+              if (gananciaAfiliado > 0) {
+                await db.affiliate.update({
+                  where: { id: tenant.affiliateId },
+                  data: {
+                    saldoAcumulado: tenant.affiliate.saldoAcumulado.toNumber() + gananciaAfiliado,
+                    totalGanado: tenant.affiliate.totalGanado.toNumber() + gananciaAfiliado
+                  }
+                });
+              }
+            }
+            logger.info({ tenantId, paymentId }, "Fee de instalación procesado correctamente");
+            emitirSSE(tenantId, "installation_paid", { paymentId });
+          }
+        }
+      } else if (metadata.action_type === "end_customer_payment") {
+        const tenantId = metadata.tenant_id;
+        const endCustomerId = metadata.end_customer_id;
+        const paymentType = metadata.payment_type; // "prepago" o "retencion"
+        const minutosComprados = metadata.minutos ? parseFloat(metadata.minutos) : 0;
+        const montoTotal = amountAfterFees;
 
-      // Enviar email de recarga exitosa
-      const user = await db.user.findUnique({ where: { id: userId } });
-      if (user?.email) {
-        await enviarEmail({
-          to: user.email,
-          ...emailTemplates.recargaExitosa(
-            (evento.data.amount_after_fees ?? 0).toFixed(2),
-            saldoNuevo.toFixed(2)
-          ),
-        });
-      }
-    }
+        if (tenantId && endCustomerId) {
+          // 1. Calcular comisiones (Solo si es prepago)
+          let comisionPlataforma = montoTotal;
+          let comisionDueno = 0;
+          let comisionAfiliado = 0;
+          let affiliateId = null;
 
-    if (evento.type === "refund.created") {
-      // Reversar saldo
-      const paymentId = evento.data?.id;
-      if (paymentId) {
-        await reversarSaldo(paymentId);
+          if (paymentType === "prepago") {
+            const comisiones = await calcularComisiones(tenantId, montoTotal, minutosComprados);
+            comisionPlataforma = comisiones.comisionPlataforma;
+            comisionDueno = comisiones.comisionDueno;
+            comisionAfiliado = comisiones.comisionAfiliado;
+            affiliateId = comisiones.affiliateId;
+          }
+
+          await db.$transaction(async (tx) => {
+            // 2. Registrar EndCustomerPayment
+            await tx.endCustomerPayment.create({
+              data: {
+                endCustomerId,
+                tenantId,
+                whopPaymentId: paymentId,
+                tipo: paymentType,
+                montoTotal,
+                minutosComprados,
+                precioPorMinuto: montoTotal / (minutosComprados || 1), // Aproximado para el snapshot
+                comisionPlataforma: comisionPlataforma,
+                comisionDueno: comisionDueno,
+                comisionAfiliado: comisionAfiliado,
+                affiliateId: affiliateId,
+                status: "activo"
+              }
+            });
+
+            // 3. Acreditar a EndCustomer
+            const endCustomer = await tx.endCustomer.findUnique({ where: { id: endCustomerId } });
+            if (endCustomer) {
+              if (paymentType === "prepago") {
+                await tx.endCustomer.update({
+                  where: { id: endCustomerId },
+                  data: { saldoMinutos: endCustomer.saldoMinutos.toNumber() + minutosComprados }
+                });
+              } else if (paymentType === "retencion") {
+                await tx.endCustomer.update({
+                  where: { id: endCustomerId },
+                  data: { saldoDinero: endCustomer.saldoDinero.toNumber() + montoTotal }
+                });
+              }
+            }
+
+            // 4. Aplicar comisiones a Dueño y Afiliado (Solo si es prepago)
+            if (paymentType === "prepago") {
+              await aplicarComisiones(
+                tx,
+                tenantId,
+                affiliateId,
+                comisionDueno,
+                comisionAfiliado,
+                paymentId
+              );
+            }
+          });
+          logger.info({ endCustomerId, tenantId, paymentId }, "Pago de cliente final procesado");
+        }
       }
     }
 

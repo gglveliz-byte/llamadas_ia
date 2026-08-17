@@ -46,15 +46,15 @@ interface SidebarItem {
 const NAV_ITEMS: SidebarItem[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, rol: "cliente" },
   { id: "citas", label: "Citas", icon: CalendarDays, rol: "cliente" },
-  { id: "recargas", label: "Recargas", icon: Wallet, rol: "cliente" },
+  { id: "recargas", label: "Ganancias", icon: Wallet, rol: "cliente" },
   { id: "simulador", label: "Configuración del Negocio", icon: Mic, rol: "cliente" },
   { id: "salientes", label: "Llamar", icon: PhoneOutgoing, rol: "cliente" },
   { id: "configuracion", label: "Configuración", icon: Settings, rol: "cliente" },
   { id: "admin-clientes", label: "Clientes", icon: Users, rol: "admin" },
-  { id: "admin-tarifas", label: "Tarifas", icon: Tag, rol: "admin" },
   { id: "admin-metricas", label: "Métricas", icon: Activity, rol: "admin" },
   { id: "admin-flujo", label: "Flujo de Caja", icon: TrendingUp, rol: "admin" },
   { id: "admin-ranking", label: "Ranking", icon: Trophy, rol: "admin" },
+  { id: "admin-afiliados", label: "Afiliados", icon: Users, rol: "admin" },
   { id: "admin-config", label: "Configuración Admin", icon: Cog, rol: "admin" },
 ];
 
@@ -79,12 +79,12 @@ export function Sidebar({ walletSaldo, porcentajeSaldo, onSeccionChange }: Sideb
   return (
     <aside className="flex h-full w-64 flex-col bg-sidebar border-r border-sidebar-border">
       <div className="flex items-center gap-2 px-4 h-16 border-b border-sidebar-border">
-        <div className="h-9 w-9 rounded-full bg-primary flex items-center justify-center">
-          <Phone className="h-5 w-5 text-primary-foreground" />
+        <div className="h-9 w-9 flex items-center justify-center rounded-full overflow-hidden shrink-0 shadow-sm border border-border/50">
+          <img src="/logotipo.png" alt="Voice IA Logo" className="h-full w-full object-cover" />
         </div>
         <div className="flex flex-col">
           <span className="text-base font-bold text-sidebar-foreground leading-tight">
-            VozIA
+            Voice IA
           </span>
           <span className="text-[10px] text-muted-foreground uppercase tracking-wider">
             Asistente de voz con IA

@@ -48,9 +48,9 @@ export async function POST(req: NextRequest) {
         },
         body: JSON.stringify({
           to: email,
-          subject: "Verifica tu cuenta - VozIA",
+          subject: "Verifica tu cuenta - Voice IA",
           text: `Haz clic aquí para verificar tu cuenta: ${frontendUrl}/api/auth/verify?token=${verificationToken}`,
-          html: `<p>Bienvenido a VozIA. Haz clic <a href="${frontendUrl}/api/auth/verify?token=${verificationToken}">aquí</a> para verificar tu cuenta.</p>`
+          html: `<p>Bienvenido a Voice IA. Haz clic <a href="${frontendUrl}/api/auth/verify?token=${verificationToken}">aquí</a> para verificar tu cuenta.</p>`
         }),
         signal: controller.signal,
       });

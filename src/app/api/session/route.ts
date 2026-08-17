@@ -11,6 +11,25 @@ export async function GET(req: NextRequest) {
   try {
     const token = authHeader.slice(7);
     const payload = verificarJwt(token);
+    
+    if (payload.role === "afiliado" as any) {
+      const affiliate = await db.affiliate.findUnique({ where: { id: payload.userId } });
+      if (!affiliate) {
+        return NextResponse.json({ error: "Afiliado no encontrado" }, { status: 404 });
+      }
+      return NextResponse.json({
+        user: {
+          id: affiliate.id,
+          email: affiliate.email,
+          role: "afiliado",
+          nombre: affiliate.nombre,
+          slug: affiliate.slug,
+          comisionPorMinuto: affiliate.comisionPorMinuto,
+        },
+        wallet: null,
+      });
+    }
+
     const user = await db.user.findUnique({
       where: { id: payload.userId },
       include: { settings: true, wallet: true },
@@ -30,6 +49,8 @@ export async function GET(req: NextRequest) {
         telnyxChildAccountId: user.telnyxChildAccountId,
         telnyxProvisioningStatus: user.telnyxProvisioningStatus,
         telnyxProvisioningError: user.telnyxProvisioningError,
+        installationPaid: user.installationPaid,
+        installationAmount: user.installationAmount ? Number(user.installationAmount) : 0,
       },
       settings: user.settings,
       wallet: user.wallet
@@ -64,6 +85,8 @@ export async function POST(req: NextRequest) {
       telnyxChildAccountId: user.telnyxChildAccountId,
       telnyxProvisioningStatus: user.telnyxProvisioningStatus,
       telnyxProvisioningError: user.telnyxProvisioningError,
+      installationPaid: user.installationPaid,
+      installationAmount: user.installationAmount ? Number(user.installationAmount) : 0,
     },
     settings: user.settings,
     wallet: user.wallet

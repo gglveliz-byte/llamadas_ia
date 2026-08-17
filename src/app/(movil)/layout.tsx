@@ -3,7 +3,7 @@ import { ThemeProvider } from "next-themes";
 import "../globals.css";
 
 export const metadata: Metadata = {
-  title: "VozIA - Móvil",
+  title: "Voice IA - Móvil",
   description: "Agente de voz IA",
 };
 

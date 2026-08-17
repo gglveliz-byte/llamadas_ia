@@ -8,16 +8,18 @@ import { Topbar } from "@/components/app/topbar";
 import { LoginScreen } from "@/components/app/login-screen";
 import { DashboardSection } from "@/components/sections/dashboard";
 import { CitasSection } from "@/components/sections/citas";
-import { RecargasSection } from "@/components/sections/recargas";
+import { GananciasSection } from "@/components/sections/ganancias";
+import { AfiliadoDashboardSection } from "@/components/sections/afiliado-dashboard";
+import { InstalacionGate } from "./instalacion-gate";
 import { ConfiguracionSection } from "@/components/sections/configuracion";
 import { SimuladorSection } from "@/components/sections/simulador";
 import { SalientesSection } from "@/components/sections/salientes";
 import { AdminClientesSection } from "@/components/sections/admin-clientes";
-import { AdminTarifasSection } from "@/components/sections/admin-tarifas";
 import { AdminMetricasSection } from "@/components/sections/admin-metricas";
 import { AdminFlujoSection } from "@/components/sections/admin-flujo";
 import { AdminConfigSection } from "@/components/sections/admin-config";
 import { AdminRankingSection } from "@/components/sections/admin-ranking";
+import { AdminAfiliadosSection } from "@/components/sections/admin-afiliados";
 import {
   Sheet,
   SheetContent,
@@ -136,12 +138,12 @@ export function AppShell() {
 
   if (cargandoSesion) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-center space-y-3">
-          <div className="inline-flex h-12 w-12 rounded-full bg-primary items-center justify-center animate-pulse">
-            <span className="text-primary-foreground font-bold">V</span>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-background">
+        <div className="text-center space-y-6">
+          <div className="inline-flex h-32 w-32 items-center justify-center rounded-full overflow-hidden animate-pulse border border-border/50 shadow-lg">
+            <img src="/logotipo.png" alt="Voice IA Logo" className="h-full w-full object-cover" />
           </div>
-          <div className="text-sm text-muted-foreground">Cargando VozIA...</div>
+          <div className="text-lg text-muted-foreground font-medium animate-pulse">Cargando Voice IA...</div>
         </div>
       </div>
     );
@@ -149,6 +151,10 @@ export function AppShell() {
 
   if (!usuario) {
     return <LoginScreen />;
+  }
+
+  if (usuario.role === "cliente" && !usuario.installationPaid && (usuario.installationAmount || 0) > 0) {
+    return <InstalacionGate amount={usuario.installationAmount!} />;
   }
 
   const renderSeccion = () => {
@@ -159,7 +165,7 @@ export function AppShell() {
       case "citas":
         return esCliente ? <CitasSection /> : <NoAccess />;
       case "recargas":
-        return esCliente ? <RecargasSection /> : <NoAccess />;
+        return esCliente ? <GananciasSection /> : <NoAccess />;
       case "configuracion":
         return esCliente ? <ConfiguracionSection /> : <NoAccess />;
       case "simulador":
@@ -168,8 +174,7 @@ export function AppShell() {
         return esCliente ? <SalientesSection /> : <NoAccess />;
       case "admin-clientes":
         return usuario.role === "admin" ? <AdminClientesSection /> : <NoAccess />;
-      case "admin-tarifas":
-        return usuario.role === "admin" ? <AdminTarifasSection /> : <NoAccess />;
+
       case "admin-metricas":
         return usuario.role === "admin" ? <AdminMetricasSection /> : <NoAccess />;
       case "admin-flujo":
@@ -178,6 +183,10 @@ export function AppShell() {
         return usuario.role === "admin" ? <AdminRankingSection /> : <NoAccess />;
       case "admin-config":
         return usuario.role === "admin" ? <AdminConfigSection /> : <NoAccess />;
+      case "admin-afiliados":
+        return usuario.role === "admin" ? <AdminAfiliadosSection /> : <NoAccess />;
+      case "afiliado-dashboard":
+        return usuario.role === "afiliado" ? <AfiliadoDashboardSection /> : <NoAccess />;
       default:
         return esCliente ? <DashboardSection /> : <AdminMetricasSection />;
     }
@@ -221,7 +230,7 @@ export function AppShell() {
           walletSaldo={walletSaldo}
           porcentajeSaldo={porcentajeSaldo}
         />
-        <main className="flex-1 overflow-y-auto wa-scroll p-4 lg:p-6 chat-bg">
+        <main className="flex-1 overflow-y-auto wa-scroll p-4 lg:p-6 chat-bg" style={{ zoom: 0.70 }}>
           {renderSeccion()}
         </main>
       </div>

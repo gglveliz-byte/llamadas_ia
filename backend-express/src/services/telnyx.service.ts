@@ -27,13 +27,13 @@ export async function createChildAccountWithSetup(
   const childAccount = await createChildAccount(accountName, email);
   
   // 2. Generar API Key para la cuenta hija
-  const apiKeyData = await createApiKeyForAccount(childAccount.id, `VozIA-${accountName}`);
+  const apiKeyData = await createApiKeyForAccount(childAccount.id, `Voice IA-${accountName}`);
   const apiKey = apiKeyData.key;
   
   // 3. Crear conexión de voz (WebSocket) para streaming
   const webhookUrl = `${webhookBaseUrl}/webhooks/telnyx/voice`;
   const connection = await createVoiceConnection(
-    `VozIA-${accountName}`,
+    `Voice IA-${accountName}`,
     webhookUrl,
     childAccount.id
   );
@@ -556,6 +556,25 @@ export async function hangupCall(callControlId: string): Promise<TelnyxCallContr
   const data = await telnyxFetch<{ data: TelnyxCallControl }>(
     `/calls/${callControlId}/actions/hangup`,
     { method: "POST" }
+  );
+  return data.data;
+}
+
+/**
+ * Call Control API - Rechaza llamada entrante sin contestarla.
+ * POST /v2/calls/{call_control_id}/actions/reject
+ */
+export async function rejectCall(callControlId: string, cause: "call_rejected" | "user_busy" | "unallocated_number" = "call_rejected"): Promise<TelnyxCallControl | null> {
+  if (callControlId.startsWith("test_")) {
+    logger.debug({ callControlId }, "Simulador: rejectCall ignorado para llamada de prueba");
+    return null;
+  }
+  const data = await telnyxFetch<{ data: TelnyxCallControl }>(
+    `/calls/${callControlId}/actions/reject`,
+    { 
+      method: "POST",
+      body: JSON.stringify({ cause }) 
+    }
   );
   return data.data;
 }

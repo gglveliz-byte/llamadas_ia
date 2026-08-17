@@ -33,6 +33,7 @@ export function useSSE() {
       "transcripcion",
       "alerta_sistema",
       "recarga_exitosa",
+      "estado_llamada",
     ];
 
     for (const tipo of tiposEvento) {

@@ -15,12 +15,14 @@ export type Seccion =
   | "admin-metricas"
   | "admin-flujo"
   | "admin-ranking"
-  | "admin-config";
+  | "admin-config"
+  | "admin-afiliados"
+  | "afiliado-dashboard";
 
 interface SesionUsuario {
   id: string;
   email: string;
-  role: "cliente" | "admin";
+  role: "cliente" | "admin" | "afiliado";
   businessName: string | null;
   businessPhone: string | null;
   isVerified: boolean;
@@ -28,6 +30,10 @@ interface SesionUsuario {
   telnyxChildAccountId: string | null;
   telnyxProvisioningStatus?: string;
   telnyxProvisioningError?: string | null;
+  slug?: string;
+  nombre?: string;
+  installationPaid?: boolean;
+  installationAmount?: number;
 }
 
 interface SesionState {
@@ -72,6 +78,8 @@ export const useAppStore = create<SesionState>()(
               telnyxChildAccountId: state.usuario.telnyxChildAccountId,
               telnyxProvisioningStatus: state.usuario.telnyxProvisioningStatus,
               telnyxProvisioningError: state.usuario.telnyxProvisioningError,
+              installationPaid: state.usuario.installationPaid,
+              installationAmount: state.usuario.installationAmount,
             }
           : null,
         token: state.token,

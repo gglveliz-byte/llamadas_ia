@@ -86,7 +86,7 @@ export default function MobileSimuladorPage() {
       <header className="px-4 py-3 border-b border-white/10 bg-white/80 dark:bg-[#1f2c33]/80 backdrop-blur-sm">
         <h1 className="text-lg font-bold">Configuración del Negocio</h1>
         <p className="text-xs text-muted-foreground">
-          {usuario?.businessName ?? "VozIA"} · Móvil
+          {usuario?.businessName ?? "Voice IA"} · Móvil
         </p>
       </header>
 

@@ -294,6 +294,53 @@ export async function agendarCita(params: {
 }
 
 /**
+ * Busca citas existentes por nombre o teléfono del cliente.
+ * Cumple con la necesidad de consultar citas de clientes específicos.
+ */
+export async function buscarCita(params: {
+  userId: string;
+  customerName?: string;
+  customerPhone?: string;
+}): Promise<Array<{ id: string; startTime: string; endTime: string; customerName: string; status: string; servicio: string | null }>> {
+  const where: {
+    userId: string;
+    status: { in: string[] };
+    customerName?: { contains: string; mode: "insensitive" };
+    customerPhone?: { contains: string };
+  } = {
+    userId: params.userId,
+    status: { in: ["agendado", "confirmado"] },
+  };
+
+  if (params.customerName) {
+    where.customerName = { contains: params.customerName, mode: "insensitive" };
+  }
+  if (params.customerPhone) {
+    where.customerPhone = { contains: params.customerPhone };
+  }
+
+  // Si no hay ningún parámetro de búsqueda, no devolvemos nada por seguridad
+  if (!params.customerName && !params.customerPhone) {
+    return [];
+  }
+
+  const citas = await db.appointment.findMany({ 
+    where,
+    orderBy: { startTime: "asc" },
+    take: 5 // Limitar a las 5 más próximas
+  });
+
+  return citas.map((c) => ({
+    id: c.id,
+    startTime: c.startTime.toISOString(),
+    endTime: c.endTime?.toISOString() ?? "",
+    customerName: c.customerName,
+    status: c.status,
+    servicio: c.servicio,
+  }));
+}
+
+/**
  * Cancela una cita por nombre o teléfono del cliente.
  * Cumple spec 7.6 - tool `cancelar_cita`.
  */
@@ -398,7 +445,7 @@ export async function consultarDisponibilidad(
   const ocupadas = citas.map((c) => ({
     startTime: c.startTime.toISOString(),
     endTime: c.endTime?.toISOString() ?? "",
-    customerName: c.customerName,
+    customerName: "Reservado", // Privacidad: no enviar el nombre real al prompt de IA
     recursoId: c.recursoId ?? undefined,
   }));
 

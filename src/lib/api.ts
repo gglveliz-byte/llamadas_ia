@@ -27,7 +27,10 @@ export class ApiClient {
       headers,
     });
 
-    if (res.status === 401) {
+    // No interceptar 401 si estamos intentando iniciar sesión
+    const isLoginRoute = path.includes("/api/auth/login") || path.includes("/api/auth/affiliate-login");
+
+    if (res.status === 401 && !isLoginRoute) {
       const { refreshToken } = this.getTokens();
       if (refreshToken) {
         try {
@@ -101,6 +104,11 @@ export interface Usuario {
   telnyxChildAccountId: string | null;
   telnyxProvisioningStatus?: string;
   telnyxProvisioningError?: string | null;
+  slug?: string;
+  nombre?: string;
+  comisionPorMinuto?: number;
+  installationPaid?: boolean;
+  installationAmount?: number;
 }
 
 export interface BusinessSettings {
@@ -122,6 +130,11 @@ export interface BusinessSettings {
   formFields: Array<{ key: string; label: string; type: string; required: boolean }>;
   systemPromptContext: string;
   recursos: Array<{ id: string; nombre: string }>;
+  precioPorMinuto?: number;
+  depositoMinimo?: number;
+  registrationSlug?: string;
+  landingColorPrimario?: string;
+  landingDescripcion?: string;
   updatedAt: string;
 }
 

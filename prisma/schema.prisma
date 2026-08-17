@@ -33,6 +33,12 @@ model User {
   phoneNumbers             PhoneNumber[]
   wallet                   Wallet?
   transactions             WalletTransaction[]
+  affiliateId              String?             @db.Uuid
+  installationPaid         Boolean             @default(false)
+  installationPaidAt       DateTime?
+  installationAmount       Decimal?            @db.Decimal(10, 2)
+  affiliate                Affiliate?          @relation(fields: [affiliateId], references: [id])
+  endCustomers             EndCustomer[]
 
   @@map("users")
 }
@@ -58,6 +64,15 @@ model BusinessSettings {
   recursos               Json     @default("[]")
   updatedAt              DateTime @updatedAt
   user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  registrationSlug       String?  @unique
+  precioPorMinuto        Decimal  @default(0.50) @db.Decimal(10, 4)
+  metodosPago            String[] @default(["prepago"])
+  depositoMinimo         Decimal? @db.Decimal(10, 2)
+  landingLogo            String?
+  landingDescripcion     String?
+  landingColorPrimario   String?  @default("#10B981")
+  landingColorFondo      String?  @default("#FFFFFF")
+  landingImagenFondo     String?
 
   @@map("business_settings")
 }
@@ -93,19 +108,6 @@ model WalletTransaction {
   @@map("wallet_transactions")
 }
 
-model RechargePackage {
-  id               Int      @id @default(autoincrement())
-  nombre           String
-  montoRecarga     Decimal  @db.Decimal(10, 2)
-  saldoOtorgado    Decimal  @db.Decimal(10, 2)
-  precioPorMinuto  Decimal  @db.Decimal(10, 4)
-  precioPorSegundo Decimal? @db.Decimal(10, 6)
-  activo           Boolean  @default(true)
-  createdAt        DateTime @default(now())
-
-  @@map("recharge_packages")
-}
-
 model AdminConfig {
   id          Int      @id @default(autoincrement())
   clave       String   @unique
@@ -130,21 +132,21 @@ model BusinessMemory {
 }
 
 model PhoneNumber {
-  id                Int           @id @default(autoincrement())
-  userId            String        @db.Uuid
-  phoneNumber       String        @unique
-  countryCode       String        @default("+1")
-  isActive          Boolean       @default(true)
-  purchasedAt       DateTime      @default(now())
-  telnyxPhoneSid    String?
-  upfrontCost       Decimal?      @db.Decimal(10, 4)
-  monthlyCost       Decimal?      @db.Decimal(10, 4)
-  currency          String        @default("USD")
+  id                  Int           @id @default(autoincrement())
+  userId              String        @db.Uuid
+  phoneNumber         String        @unique
+  countryCode         String        @default("+1")
+  isActive            Boolean       @default(true)
+  purchasedAt         DateTime      @default(now())
+  telnyxPhoneSid      String?
+  upfrontCost         Decimal?      @db.Decimal(10, 4)
+  monthlyCost         Decimal?      @db.Decimal(10, 4)
+  currency            String        @default("USD")
   lastMonthlyChargeAt DateTime?
-  suspensionAt      DateTime?
-  releasedAt        DateTime?
-  appointments      Appointment[]
-  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  suspensionAt        DateTime?
+  releasedAt          DateTime?
+  appointments        Appointment[]
+  user                User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("phone_numbers")
@@ -251,4 +253,80 @@ model AuditLog {
   @@index([targetUserId, createdAt])
   @@index([action, createdAt])
   @@map("audit_logs")
+}
+
+model Affiliate {
+  id                String    @id @default(uuid()) @db.Uuid
+  nombre            String
+  email             String    @unique
+  telefono          String?
+  passwordHash      String
+  slug              String    @unique
+  comisionPorMinuto Decimal   @default(0.05) @db.Decimal(10, 4)
+  feeInstalacion    Decimal   @db.Decimal(10, 2)
+  porcentajeInstalacion Decimal @default(50) @db.Decimal(5, 2)
+  saldoAcumulado    Decimal   @default(0) @db.Decimal(10, 4)
+  totalGanado       Decimal   @default(0) @db.Decimal(10, 4)
+  isActive          Boolean   @default(true)
+  desactivadoAt     DateTime?
+  desactivadoMotivo String?
+  createdAt         DateTime  @default(now())
+
+  referidos User[]
+
+  @@map("affiliates")
+}
+
+model EndCustomer {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @db.Uuid
+  nombre       String
+  telefono     String
+  email        String?
+  saldoMinutos Decimal  @default(0) @db.Decimal(10, 2)
+  saldoDinero  Decimal  @default(0) @db.Decimal(10, 4)
+  createdAt    DateTime @default(now())
+
+  tenant         User                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  pagos          EndCustomerPayment[]
+  refundRequests RefundRequest[]
+
+  @@unique([tenantId, telefono])
+  @@map("end_customers")
+}
+
+model EndCustomerPayment {
+  id                 String   @id @default(uuid()) @db.Uuid
+  endCustomerId      String   @db.Uuid
+  tenantId           String   @db.Uuid
+  whopPaymentId      String   @unique
+  tipo               String
+  montoTotal         Decimal  @db.Decimal(10, 4)
+  minutosComprados   Decimal? @db.Decimal(10, 2)
+  precioPorMinuto    Decimal  @db.Decimal(10, 4)
+  comisionPlataforma Decimal  @db.Decimal(10, 4)
+  comisionDueno      Decimal  @db.Decimal(10, 4)
+  comisionAfiliado   Decimal? @db.Decimal(10, 4)
+  affiliateId        String?  @db.Uuid
+  reembolso          Decimal? @db.Decimal(10, 4)
+  status             String   @default("activo")
+  createdAt          DateTime @default(now())
+
+  endCustomer EndCustomer @relation(fields: [endCustomerId], references: [id])
+
+  @@map("end_customer_payments")
+}
+
+model RefundRequest {
+  id              String   @id @default(uuid()) @db.Uuid
+  endCustomerId   String   @db.Uuid
+  tenantId        String   @db.Uuid
+  whopPaymentId   String
+  montoSolicitado Decimal  @db.Decimal(10, 4)
+  status          String   @default("pendiente") // pendiente | completado | rechazado
+  createdAt       DateTime @default(now())
+
+  endCustomer EndCustomer @relation(fields: [endCustomerId], references: [id])
+
+  @@map("refund_requests")
 }

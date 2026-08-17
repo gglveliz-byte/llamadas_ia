@@ -56,7 +56,7 @@ describe("debitarLlamada", () => {
   it("cobra por minuto completo (ceil) cuando cobro_por_segundo=false", async () => {
     const user = await crearUsuario({ saldo: 10, businessSettings: false });
     // 61s -> ceil(61/60)=2 minutos -> 2 * 0.50 = 1.00
-    const res = await debitarLlamada(user.id, "call-min-1", 61);
+    const res = await debitarLlamada(user.id, "+1234567890", "call-min-1", 61);
     expect(res.monto).toBe(1);
     expect(res.saldoNuevo).toBe(9);
 
@@ -75,7 +75,7 @@ describe("debitarLlamada", () => {
     try {
       const user = await crearUsuario({ saldo: 10, businessSettings: false });
       // 90s -> (0.50/60)*90 = 0.75
-      const res = await debitarLlamada(user.id, "call-sec-1", 90);
+      const res = await debitarLlamada(user.id, "+1234567890", "call-sec-1", 90);
       expect(res.monto).toBeCloseTo(0.75, 4);
       expect(res.saldoNuevo).toBeCloseTo(9.25, 4);
     } finally {
@@ -94,7 +94,7 @@ describe("debitarLlamada", () => {
     try {
       const user = await crearUsuario({ saldo: 10, businessSettings: false });
       // 1s -> 0.50/60 = 0.008333... -> redondeado a 0.0083
-      const res = await debitarLlamada(user.id, "call-round-1", 1);
+      const res = await debitarLlamada(user.id, "+1234567890", "call-round-1", 1);
       expect(res.monto).toBe(0.0083);
     } finally {
       await db.adminConfig.update({
@@ -108,7 +108,7 @@ describe("debitarLlamada", () => {
     const user = await crearUsuario({ saldo: 60, businessSettings: false });
     await acreditarSaldo(user.id, 3, "pay-price-1", 50); // Business: 0.30/min
     // 120s = 2 min -> 0.60
-    const res = await debitarLlamada(user.id, "call-price-1", 120);
+    const res = await debitarLlamada(user.id, "+1234567890", "call-price-1", 120);
     expect(res.monto).toBe(0.6);
   });
 });
@@ -132,8 +132,8 @@ describe("verificarSaldo", () => {
 describe("Idempotencia (anti doble cobro)", () => {
   it("debitarLlamada con el mismo callSid no cobra dos veces", async () => {
     const user = await crearUsuario({ saldo: 10, businessSettings: false });
-    const primera = await debitarLlamada(user.id, "call-dup-1", 61); // 1.00
-    const segunda = await debitarLlamada(user.id, "call-dup-1", 61);
+    const primera = await debitarLlamada(user.id, "+1234567890", "call-dup-1", 61); // 1.00
+    const segunda = await debitarLlamada(user.id, "+1234567890", "call-dup-1", 61);
 
     expect(segunda.saldoNuevo).toBe(primera.saldoNuevo); // 9
     const wallet = await db.wallet.findUnique({ where: { userId: user.id } });

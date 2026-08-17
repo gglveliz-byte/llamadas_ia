@@ -2,7 +2,7 @@ import { Type } from "@google/genai";
 import { WebSocket as WS } from "ws";
 import { db } from "../models/database.pool";
 import { obtenerContextoRAG } from "../services/rag.service";
-import { agendarCita, cancelarCita, consultarDisponibilidad, reagendarCita } from "../services/calendar.service";
+import { agendarCita, buscarCita, cancelarCita, consultarDisponibilidad, reagendarCita } from "../services/calendar.service";
 import { transcodificarGeminiATelefonía } from "../utils/audioTranscoder";
 import { emitirSSE } from "../sse/events.emitter";
 import { registrarLatencia, enviarAlertaAdmin } from "../services/monitoring.service";
@@ -12,7 +12,6 @@ import { conTimeout, crearDedup, firmaHerramienta } from "../utils/toolGuards";
 import { normalizarVoz } from "../utils/voices";
 import { obtenerRegion, derivarIdiomaDeRegion, HUMANIZACION_BASE } from "../utils/region";
 import { logger } from "../utils/logger";
-import { agregarChunkOutbound } from "../services/audio.service";
 import { hangupCall } from "../services/telnyx.service";
 import { cerrarLlamadaWebSocket, obtenerTiempoRestanteAudio } from "./telnyxStream.handler";
 
@@ -189,6 +188,9 @@ ${obtenerRegion(settings.aiRegion).snippet}
 
 ## CONTEXTO DEL NEGOCIO
 ${safeContexto}
+
+## CONOCIMIENTO RESTRINGIDO (CRÍTICO)
+ESTÁ ESTRICTAMENTE PROHIBIDO INVENTAR INFORMACIÓN. Solo puedes usar y ofrecer los servicios, precios, procesos y detalles que están ESCRITOS EXPLÍCITAMENTE en el "CONTEXTO DEL NEGOCIO". Si el cliente pregunta algo que no está detallado allí (como precios que no aparecen, procesos técnicos, o preguntas específicas), responde con honestidad: "No tengo esa información a la mano en este momento, pero con gusto puedo tomar tu duda o agendarte para que te asesoremos en persona". NUNCA asumas, deduzcas, ni alucines información.
 
 ## FECHA Y HORA ACTUAL DEL NEGOCIO
 Hoy es ${fechaActual} (Zona horaria: ${settings.timezone})
@@ -413,6 +415,19 @@ function obtenerHerramientas(settings: {
               notes: { type: Type.STRING, description: "Notas adicionales (opcional)" },
             },
             required: ["customer_name", "start_time"],
+          },
+        } as const,
+        {
+          name: "buscar_cita",
+          description:
+            "Busca las citas agendadas de un cliente específico por su nombre o teléfono. Úsala cuando el cliente pregunte si tiene citas programadas o a qué hora es su cita.",
+          parameters: {
+            type: Type.OBJECT,
+            properties: {
+              customer_name: { type: Type.STRING, description: "Nombre del cliente" },
+              customer_phone: { type: Type.STRING, description: "Teléfono del cliente (opcional)" },
+            },
+            required: ["customer_name"],
           },
         } as const,
         {
@@ -692,6 +707,42 @@ export async function ejecutarHerramienta(
         );
       }
 
+      case "buscar_cita": {
+        const params = args as {
+          customer_name?: string;
+          customer_phone?: string;
+        };
+        if (!params.customer_name && !params.customer_phone) {
+          return registrar(
+            "error",
+            { error: "faltan_datos" },
+            "Faltan datos para buscar la cita. Pide el nombre o teléfono del cliente."
+          );
+        }
+        const citas = await conTimeout(
+          buscarCita({
+            userId,
+            customerName: params.customer_name,
+            customerPhone: params.customer_phone,
+          }),
+          TIMEOUTS[name] ?? TIMEOUT_DEFAULT
+        );
+        if (citas.length === 0) {
+          return registrar(
+            "ok",
+            { encontradas: 0 },
+            "No encontré ninguna cita agendada a ese nombre. Dile al cliente que no tiene citas programadas o pregúntale si reservó a otro nombre."
+          );
+        }
+        
+        const infoCitas = citas.map(c => `Día y Hora: ${new Date(c.startTime).toLocaleString("es-MX", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}, Servicio: ${c.servicio || "General"}`).join(". ");
+        return registrar(
+          "ok",
+          { encontradas: citas.length, citas },
+          `Encontré ${citas.length} cita(s) programadas. Dile cordialmente la información al cliente: ${infoCitas}`
+        );
+      }
+
       case "cancelar_cita": {
         const params = args as {
           customer_name?: string;
@@ -823,11 +874,7 @@ export async function procesarMensajesGemini(
           if (part.inlineData && part.inlineData.mimeType?.startsWith("audio")) {
             const mulaw8k = await transcodificarGeminiATelefonía(part.inlineData.data);
             if (mulaw8k.length === 0) continue;
-            logger.debug({ callSid, bytes: mulaw8k.length }, "[GEMINI API] 🔊 Audio generado por la IA enviado a Telnyx");
             enviarATelnyx(streamSid, mulaw8k);
-            
-            // Grabar el audio generado en el canal derecho (IA)
-            agregarChunkOutbound(callSid, Buffer.from(mulaw8k, "base64"));
             
             // Registrar latencia solo una vez por turno (primer chunk de la respuesta)
             if (!primeraRespuestaRegistrada) {
@@ -883,6 +930,7 @@ export async function procesarMensajesGemini(
           },
           "Turno Gemini completado"
         );
+        session.emit("turnComplete");
         // Iniciar la medición del siguiente turno desde aquí
         inicioTurno = Date.now();
         primeraRespuestaRegistrada = false;

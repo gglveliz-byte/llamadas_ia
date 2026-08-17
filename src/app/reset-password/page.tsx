@@ -68,11 +68,11 @@ export default function ResetPasswordPage() {
     <div className="min-h-screen flex items-center justify-center bg-background chat-bg p-4">
       <div className="w-full max-w-md space-y-6">
         <div className="text-center space-y-3">
-          <div className="inline-flex h-14 w-14 rounded-full bg-primary items-center justify-center shadow-lg">
-            <Lock className="h-7 w-7 text-primary-foreground" />
+          <div className="inline-flex h-14 w-14 items-center justify-center rounded-full overflow-hidden shadow-lg border border-border/50">
+            <img src="/logotipo.png" alt="Voice IA Logo" className="h-full w-full object-cover" />
           </div>
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">VozIA</h1>
+            <h1 className="text-3xl font-bold tracking-tight">Voice IA</h1>
             <p className="text-sm text-muted-foreground">
               Restablecer contraseña
             </p>

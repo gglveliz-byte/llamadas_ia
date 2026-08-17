@@ -181,6 +181,17 @@ export function ConfiguracionSection() {
     }
   };
 
+  const eliminarNumero = async (id: number) => {
+    if (!usuario) return;
+    try {
+      await ApiClient.delete(`/api/phone-numbers?id=${id}&userId=${usuario.id}`);
+      toast.success("Número eliminado del registro");
+      cargar(); // Recargar la lista
+    } catch (e) {
+      toast.error("Error al eliminar: " + (e as Error).message);
+    }
+  };
+
   // Cascada País → Idioma → Acento. El acento (settings.aiRegion) es la fuente
   // de verdad; el idioma siempre se deriva del acento (nunca se configura libre).
   const regionActual = React.useMemo(() => {
@@ -277,7 +288,7 @@ export function ConfiguracionSection() {
   return (
     <>
     <Tabs defaultValue="perfil" className="space-y-4">
-      <TabsList className="grid w-full grid-cols-2 md:grid-cols-5 h-auto">
+      <TabsList className="grid w-full grid-cols-2 md:grid-cols-6 h-auto">
         <TabsTrigger value="perfil" className="text-xs gap-1">
           <User className="h-3.5 w-3.5" /> Perfil
         </TabsTrigger>
@@ -292,6 +303,9 @@ export function ConfiguracionSection() {
         </TabsTrigger>
         <TabsTrigger value="grabaciones" className="text-xs gap-1">
           <Mic className="h-3.5 w-3.5" /> Grabación
+        </TabsTrigger>
+        <TabsTrigger value="landing" className="text-xs gap-1 text-emerald-500">
+          <Globe className="h-3.5 w-3.5" /> Landing y Cobros
         </TabsTrigger>
       </TabsList>
 
@@ -669,12 +683,25 @@ export function ConfiguracionSection() {
                             )}
                           </div>
                         </div>
-                        <Badge
-                          variant={n.releasedAt ? "secondary" : n.isActive ? "default" : "secondary"}
-                          className={n.releasedAt ? "text-red-600 border-red-500/30" : !n.isActive ? "text-amber-600 border-amber-500/30" : ""}
-                        >
-                          {n.releasedAt ? "Liberado" : n.isActive ? "Activo" : "Suspendido"}
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            variant={n.releasedAt ? "secondary" : n.isActive ? "default" : "secondary"}
+                            className={n.releasedAt ? "text-red-600 border-red-500/30" : !n.isActive ? "text-amber-600 border-amber-500/30" : ""}
+                          >
+                            {n.releasedAt ? "Liberado" : n.isActive ? "Activo" : "Suspendido"}
+                          </Badge>
+                          {n.releasedAt && (
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950" 
+                              onClick={() => eliminarNumero(n.id)}
+                              title="Eliminar registro"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     );
                   })
@@ -891,6 +918,94 @@ export function ConfiguracionSection() {
                 ))}
               </div>
             )}
+          </CardContent>
+        </Card>
+      </TabsContent>
+      
+      {/* Landing y Pagos */}
+      <TabsContent value="landing">
+        <Card className="panel-wa border-emerald-500/20 shadow-lg shadow-emerald-500/5">
+          <CardHeader>
+            <CardTitle className="text-emerald-500 flex items-center gap-2">
+              <Globe className="h-5 w-5" /> Configuración de Landing y Precios
+            </CardTitle>
+            <CardDescription>
+              Configura cómo verán los clientes tu página y cuánto les cobrarás por minuto.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Col 1 */}
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Precio por minuto (USD)</Label>
+                  <Input 
+                    type="number" 
+                    step="0.01" 
+                    min="0"
+                    value={settings.precioPorMinuto?.toString() || "0"}
+                    onChange={(e) => setSettings({ ...settings, precioPorMinuto: parseFloat(e.target.value) || 0 })}
+                  />
+                  <p className="text-xs text-muted-foreground">Lo que el cliente pagará por minuto de llamada.</p>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label>Depósito mínimo (USD) (Retención)</Label>
+                  <Input 
+                    type="number" 
+                    step="1" 
+                    min="1"
+                    value={settings.depositoMinimo?.toString() || "10"}
+                    onChange={(e) => setSettings({ ...settings, depositoMinimo: parseFloat(e.target.value) || 10 })}
+                  />
+                  <p className="text-xs text-muted-foreground">Garantía retenida al inicio de la llamada (si usan este método).</p>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label>URL Personalizada (Slug)</Label>
+                  <div className="flex">
+                    <span className="inline-flex items-center px-3 rounded-l-md border border-r-0 border-input bg-muted text-muted-foreground sm:text-sm">
+                      voz.ia/r/
+                    </span>
+                    <Input 
+                      className="rounded-l-none" 
+                      placeholder="mi-empresa"
+                      value={settings.registrationSlug || ""}
+                      onChange={(e) => setSettings({ ...settings, registrationSlug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') })}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Col 2 */}
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Descripción de la Landing</Label>
+                  <Textarea 
+                    rows={4}
+                    placeholder="Descripción atractiva para tus clientes..."
+                    value={settings.landingDescripcion || ""}
+                    onChange={(e) => setSettings({ ...settings, landingDescripcion: e.target.value })}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <Button 
+              className="w-full bg-emerald-600 hover:bg-emerald-700" 
+              onClick={() => guardar({ 
+                precioPorMinuto: settings.precioPorMinuto,
+                depositoMinimo: settings.depositoMinimo,
+                registrationSlug: settings.registrationSlug,
+                landingColorPrimario: settings.landingColorPrimario,
+                landingDescripcion: settings.landingDescripcion
+              })} 
+              disabled={saving}
+            >
+              <Save className="h-4 w-4 mr-2" />
+              {saving ? "Guardando..." : "Guardar Configuración de Pagos"}
+            </Button>
           </CardContent>
         </Card>
       </TabsContent>

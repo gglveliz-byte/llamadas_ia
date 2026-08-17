@@ -13,12 +13,11 @@ import type { WebSocket } from "ws";
 import { crearSesionGemini, procesarMensajesGemini } from "./gemini.handler";
 const MODELO = process.env.GEMINI_MODEL || "models/gemini-3.1-flash-live-preview";
 import { transcodificarTelefoníaAGemini, transcodificarGeminiATelefonía } from "../utils/audioTranscoder";
-import { hangupCall } from "../services/telnyx.service";
+import { startRecording, hangupCall } from "../services/telnyx.service";
 import { crearSileroVAD, VADAccumulator, BargeInGuard, vadConfigManager } from "../services/vad.service";
 import { verificarSaldo, debitarLlamada } from "../services/billing.service";
 import { incrementarLlamadasActivas, decrementarLlamadasActivas } from "../services/monitoring.service";
 import { incrementarConcurrenciaTelnyx, decrementarConcurrenciaTelnyx } from "../services/ratelimit.service";
-import { iniciarBufferLlamada, agregarChunkInbound, agregarChunkOutbound, ensamblarYSubirAudio } from "../services/audio.service";
 import { emitirSSE } from "../sse/events.emitter";
 import { db } from "../models/database.pool";
 import { logger } from "../utils/logger";
@@ -75,6 +74,7 @@ interface SesionLlamada {
   callControlId: string;
   streamId: string;
   userId: string;
+  customerPhone: string;
   inicio: number;
   sesionGemini: Awaited<ReturnType<typeof crearSesionGemini>> | null;
   detectorVoz: VADAccumulator | null;
@@ -100,6 +100,7 @@ interface SesionLlamada {
   inactividadWatchdog?: ReturnType<typeof setInterval> | null;
   ws?: import("ws");
   inactividadAvisoEnviado?: boolean;
+  primerTurnoIACompletado?: boolean;
 }
 
 const sesionesActivas = new Map<string, SesionLlamada>();
@@ -122,6 +123,7 @@ export function registrarTelnyxStreamHandler(wss: import("ws").WebSocketServer):
     const userId = url.searchParams.get("user_id");
     const callControlId = url.searchParams.get("call_control_id");
     const esOutbound = url.searchParams.get("dir") === "outbound";
+    const customerPhone = url.searchParams.get("customer_phone") || "";
 
     if (!userId || !callControlId) {
       logger.error({ url: req.url }, "WebSocket Telnyx sin user_id o call_control_id");
@@ -136,6 +138,7 @@ export function registrarTelnyxStreamHandler(wss: import("ws").WebSocketServer):
       callControlId,
       streamId: "", // se llena en start o connected
       userId,
+      customerPhone,
       inicio: Date.now(),
       sesionGemini: null,
       detectorVoz: null,
@@ -156,6 +159,7 @@ export function registrarTelnyxStreamHandler(wss: import("ws").WebSocketServer):
       inactividadWatchdog: null,
       inactividadAvisoEnviado: false,
       ws,
+      primerTurnoIACompletado: false,
     };
 
     // Registrar listeners ANTES de los awaits: el navegador envía 'start'
@@ -217,7 +221,7 @@ export function registrarTelnyxStreamHandler(wss: import("ws").WebSocketServer):
 
     // Verificar saldo antes de iniciar (después de registrar listeners)
     await incrementarConcurrenciaTelnyx();
-    const saldoOk = await verificarSaldo(userId);
+    const saldoOk = await verificarSaldo(userId, customerPhone);
     if (!saldoOk) {
       logger.warn({ callControlId, userId }, "Llamada rechazada por saldo insuficiente");
       ws.close(1011, "Saldo insuficiente");
@@ -266,9 +270,9 @@ async function manejarStart(
     sesion.grabacionActiva = settings?.grabacionActiva ?? false;
   }
 
-  // Iniciar grabación si está activa
-  if (sesion.grabacionActiva) {
-    iniciarBufferLlamada(callControlId);
+  // Iniciar grabación nativa si está activa
+  if (sesion.grabacionActiva && !callControlId.startsWith("test_")) {
+    await startRecording(callControlId, "wav").catch(e => logger.error({ error: e.message, callControlId }, "Error iniciando grabación nativa"));
   }
 
   // Crear sesión Gemini (modo saliente si la llamada la inició el dueño)
@@ -284,6 +288,13 @@ async function manejarStart(
   }
 
   if (sesion.sesionGemini) {
+    sesion.sesionGemini.on("turnComplete", () => {
+      if (!sesion.primerTurnoIACompletado) {
+        logger.info({ callControlId }, "Primer turno de la IA completado. Barge-in activado.");
+        sesion.primerTurnoIACompletado = true;
+      }
+    });
+
     logger.info(`[STREAM TELNYX] 🤖 Sesión de Gemini creada exitosamente. Iniciando loop de escucha de Gemini...`);
     // Volcar el audio buffereado durante la inicialización (~3s) para no perder
     // el arranque de la llamada.
@@ -409,6 +420,10 @@ async function manejarStart(
 
   sesion.detectorVoz = await crearSileroVAD(
     () => {
+      if (!sesion.primerTurnoIACompletado) {
+        logger.debug({ callControlId }, "🔇 Barge-in ignorado (IA protegiendo su primer turno / saludo inicial)");
+        return;
+      }
       if (sesion.guard?.debeIgnorarSpeechStart()) {
         logger.debug({ callControlId }, "🔇 Barge-in ignorado (eco inicial o sordera post-interrupción)");
         return;
@@ -460,13 +475,6 @@ async function manejarMedia(
 
   const payload = mensaje.media.payload;
   const track = mensaje.media.track;
-
-  // Buffer para grabación
-  if (track === "inbound" && sesion.grabacionActiva) {
-    agregarChunkInbound(callControlId, Buffer.from(payload, "base64"));
-  } else if (track === "outbound" && sesion.grabacionActiva) {
-    agregarChunkOutbound(callControlId, Buffer.from(payload, "base64"));
-  }
 
   // Solo procesar inbound con Gemini
   if (track !== "inbound") return;
@@ -567,12 +575,9 @@ async function finalizarLlamada(callControlId: string, sesion: SesionLlamada): P
 
   try {
     // 1. Debitar
-    const { monto, saldoNuevo } = await debitarLlamada(sesion.userId, callControlId, duracionSegundos);
+    const { monto, saldoNuevo } = await debitarLlamada(sesion.userId, sesion.customerPhone, callControlId, duracionSegundos);
 
-    // 2. Grabación
-    if (sesion.grabacionActiva) {
-      await ensamblarYSubirAudio(callControlId, sesion.userId);
-    }
+    // 2. Grabación (ahora es manejada por el webhook nativo call.recording.saved en webhooks.telnyx.ts)
 
     // 3. Métricas
     const metricCount = await db.callMetric.count({ where: { callSid: callControlId } });

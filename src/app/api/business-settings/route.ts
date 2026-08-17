@@ -63,6 +63,19 @@ export async function PATCH(req: NextRequest) {
 
   const data: Record<string, unknown> = { ...updates };
 
+  if (data.precioPorMinuto !== undefined) {
+    const precioNumerico = Number(data.precioPorMinuto);
+    if (isNaN(precioNumerico)) {
+      return NextResponse.json({ error: "precioPorMinuto debe ser un número" }, { status: 400 });
+    }
+    const configPrecio = await db.adminConfig.findUnique({ where: { clave: "precio_minimo_minuto" } });
+    const precioMinimo = configPrecio ? Number(configPrecio.valor) : 0.50;
+    if (precioNumerico < precioMinimo) {
+      return NextResponse.json({ error: `El precio mínimo por minuto es $${precioMinimo}` }, { status: 400 });
+    }
+    data.precioPorMinuto = precioNumerico;
+  }
+
   // El idioma SIEMPRE se deriva del acento regional (nunca se configura libre):
   // si llega aiRegion, forzamos aiLanguage coherente con ese acento.
   if (typeof data.aiRegion === "string") {

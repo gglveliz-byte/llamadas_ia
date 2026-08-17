@@ -37,7 +37,7 @@ export default function MobileDashboardPage() {
   return (
     <div className="flex flex-col min-h-screen bg-slate-50 dark:bg-[#0b141a]">
       <header className="px-4 py-4 border-b border-white/10 bg-white/80 dark:bg-[#1f2c33]/80 backdrop-blur-sm">
-        <h1 className="text-lg font-bold">{usuario?.businessName ?? "VozIA"}</h1>
+        <h1 className="text-lg font-bold">{usuario?.businessName ?? "Voice IA"}</h1>
         <p className="text-xs text-muted-foreground">Panel móvil</p>
       </header>
 

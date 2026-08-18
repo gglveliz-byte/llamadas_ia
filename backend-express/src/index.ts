@@ -81,6 +81,7 @@ const orígenesPermitidos = (() => {
       "http://localhost:5500",
       "http://127.0.0.1:5500",
       "http://localhost:5173",
+      "https://voice-ia-8y6x.onrender.com" // Permitir frontend desplegado en Render
     );
   }
   return orígenes;
@@ -136,7 +137,7 @@ app.use("/internal", internalRouter);
 app.use("/admin", adminRouter);
 app.use("/admin/refunds", refundRouter);
 app.use("/api/public", cors({ origin: "*" }), publicRouter);
-app.use("/api/affiliate", affiliateRouter);
+app.use("/api/affiliate", cors({ origin: "*" }), affiliateRouter);
 
 // SSE endpoint
 // Cumple spec 12.1
@@ -187,7 +188,8 @@ app.use((req, res) => {
 // Error handler
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   logger.error({ error: err.message, stack: err.stack }, "Error no manejado");
-  res.status(500).json({ error: "Error interno del servidor" });
+  require("fs").appendFileSync("../express-global-error.log", "\n" + Date.now() + " " + err.message + " " + err.stack);
+  res.status(500).json({ error: "Error interno del servidor", details: err.message });
 });
 
 // Crear servidor HTTP + WebSocket

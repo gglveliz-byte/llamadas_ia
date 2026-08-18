@@ -264,7 +264,7 @@ model Affiliate {
   slug              String    @unique
   comisionPorMinuto Decimal   @default(0.05) @db.Decimal(10, 4)
   feeInstalacion    Decimal   @db.Decimal(10, 2)
-  porcentajeInstalacion Decimal @default(50) @db.Decimal(5, 2)
+  gananciaInstalacion Decimal @default(50) @db.Decimal(10, 2)
   saldoAcumulado    Decimal   @default(0) @db.Decimal(10, 4)
   totalGanado       Decimal   @default(0) @db.Decimal(10, 4)
   isActive          Boolean   @default(true)

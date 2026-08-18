@@ -84,8 +84,8 @@ whopRouter.post("/", async (req, res) => {
 
             // Repartir fee de instalación con afiliado si existe
             if (tenant.affiliateId && tenant.affiliate) {
-              const porcentaje = tenant.affiliate.porcentajeInstalacion ? tenant.affiliate.porcentajeInstalacion.toNumber() : 50;
-              const gananciaAfiliado = parseFloat((amountAfterFees * (porcentaje / 100)).toFixed(2));
+              const gananciaInstalacion = tenant.affiliate.gananciaInstalacion ? tenant.affiliate.gananciaInstalacion.toNumber() : 50;
+              const gananciaAfiliado = parseFloat(Math.min(amountAfterFees, gananciaInstalacion).toFixed(2));
               
               if (gananciaAfiliado > 0) {
                 await db.affiliate.update({

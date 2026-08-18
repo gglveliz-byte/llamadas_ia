@@ -160,9 +160,7 @@ export default function PublicLandingPage() {
           {data.landingLogo ? (
             <img src={data.landingLogo} alt={nombreMostrar || "Negocio"} className="h-8 w-auto object-contain" />
           ) : (
-            <div className="w-8 h-8 bg-primary rounded-md flex items-center justify-center text-primary-foreground font-bold text-lg">
-              {(nombreMostrar || "N").charAt(0).toUpperCase()}
-            </div>
+            <img src="/logotipo.png" alt="VozIA" className="h-8 w-auto object-contain" />
           )}
           {nombreMostrar && <h1 className="font-semibold text-lg">{nombreMostrar}</h1>}
         </div>

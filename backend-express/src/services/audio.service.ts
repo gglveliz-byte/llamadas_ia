@@ -21,7 +21,7 @@ const FFMPEG_PATH = process.env.FFMPEG_PATH || ffmpegStatic || "ffmpeg";
 
 ffmpeg.setFfmpegPath(FFMPEG_PATH);
 
-function getS3(): S3Client | null {
+export function getS3(): S3Client | null {
   if (s3Client) return s3Client;
   if (s3InitError) return null;
 

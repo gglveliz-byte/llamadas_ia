@@ -29,7 +29,7 @@ export function AdminAfiliadosSection() {
     slug: "",
     comisionPorMinuto: 0.05,
     feeInstalacion: 100,
-    porcentajeInstalacion: 50,
+    gananciaInstalacion: 50,
   });
 
   const fetchData = async () => {
@@ -83,7 +83,7 @@ export function AdminAfiliadosSection() {
       if (res.ok) {
         toast.success("Afiliado creado correctamente");
         setOpenDialog(false);
-        setFormData({ nombre: "", email: "", password: "", slug: "", comisionPorMinuto: 0.05, feeInstalacion: 100, porcentajeInstalacion: 50 });
+        setFormData({ nombre: "", email: "", password: "", slug: "", comisionPorMinuto: 0.05, feeInstalacion: 100, gananciaInstalacion: 50 });
         fetchData(); // Recargar lista
       } else {
         const error = await res.json();
@@ -268,16 +268,15 @@ export function AdminAfiliadosSection() {
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="porcentajeInstalacion">Porcentaje Ganancia (%)</Label>
+                    <Label htmlFor="gananciaInstalacion">Ganancia Afiliado ($)</Label>
                     <Input 
-                      id="porcentajeInstalacion" 
+                      id="gananciaInstalacion" 
                       type="number" 
                       step="1" 
                       min="0"
-                      max="100"
                       required 
-                      value={formData.porcentajeInstalacion}
-                      onChange={(e) => setFormData({ ...formData, porcentajeInstalacion: parseFloat(e.target.value) })}
+                      value={formData.gananciaInstalacion}
+                      onChange={(e) => setFormData({ ...formData, gananciaInstalacion: parseFloat(e.target.value) })}
                     />
                   </div>
                 </div>
@@ -327,16 +326,15 @@ export function AdminAfiliadosSection() {
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="edit-porcentaje">Porcentaje Ganancia (%)</Label>
+                    <Label htmlFor="edit-ganancia">Ganancia Afiliado ($)</Label>
                     <Input 
-                      id="edit-porcentaje" 
+                      id="edit-ganancia" 
                       type="number" 
                       step="1" 
                       min="0"
-                      max="100"
                       required 
-                      value={afiliadoAEditar?.porcentajeInstalacion || 50}
-                      onChange={(e) => setAfiliadoAEditar({ ...afiliadoAEditar, porcentajeInstalacion: parseFloat(e.target.value) })}
+                      value={afiliadoAEditar?.gananciaInstalacion || 50}
+                      onChange={(e) => setAfiliadoAEditar({ ...afiliadoAEditar, gananciaInstalacion: parseFloat(e.target.value) })}
                     />
                   </div>
                 </div>
@@ -396,7 +394,7 @@ export function AdminAfiliadosSection() {
                       <div className="text-xs text-muted-foreground uppercase">Comisión Fija</div>
                     </div>
                     <div>
-                      <div className="font-semibold">${afiliado.feeInstalacion || "0.00"} <span className="text-[10px] text-muted-foreground font-normal">({afiliado.porcentajeInstalacion || 50}%)</span></div>
+                      <div className="font-semibold">${afiliado.feeInstalacion || "0.00"} <span className="text-[10px] text-muted-foreground font-normal">(${afiliado.gananciaInstalacion || 50})</span></div>
                       <div className="text-xs text-muted-foreground uppercase">Instalación</div>
                     </div>
                     <Button variant="secondary" size="sm" onClick={() => handleEdit(afiliado)}>

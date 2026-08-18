@@ -19,7 +19,11 @@ export async function POST(req: NextRequest) {
     }
 
     let affiliateId: string | null = null;
-    let installationAmount = 0;
+    
+    // Obtener fee de instalación por defecto de la base de datos (o usar $200 de fallback)
+    const feeCfg = await db.adminConfig.findUnique({ where: { clave: "default_affiliate_fee_instalacion" } });
+    let installationAmount = feeCfg ? parseFloat(feeCfg.valor) : 200.00;
+
     if (affiliateSlug) {
       const affiliate = await db.affiliate.findUnique({ where: { slug: affiliateSlug } });
       if (affiliate) {
@@ -41,7 +45,7 @@ export async function POST(req: NextRequest) {
         verificationToken,
         affiliateId,
         installationAmount,
-        installationPaid: affiliateId ? false : true,
+        installationPaid: false, // Todos deben pagar la instalación, vengan o no de un afiliado
         wallet: {
           create: { saldo: 0, moneda: "USD" },
         },

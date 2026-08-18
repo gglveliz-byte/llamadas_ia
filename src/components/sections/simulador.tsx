@@ -286,19 +286,27 @@ export function SimuladorSection() {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <Card className="panel-wa flex flex-col h-[calc(100vh-12rem)]">
-        <CardHeader className="pb-3 border-b border-border">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-base flex items-center gap-2">
-                <MessageSquare className="h-4 w-4 text-primary" />
-                Configuración del Negocio
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-7xl mx-auto">
+      {/* Tarjeta de Entrevista */}
+      <Card className="flex flex-col h-[600px] shadow-sm border-muted/60 overflow-hidden relative group">
+        <div className="absolute inset-0 bg-gradient-to-b from-primary/5 to-transparent pointer-events-none opacity-50" />
+        
+        <CardHeader className="pb-4 border-b border-border/50 bg-background/50 backdrop-blur-sm z-10">
+          <div className="flex items-start justify-between">
+            <div className="space-y-1.5">
+              <CardTitle className="text-lg font-semibold tracking-tight flex items-center gap-2">
+                <div className="p-1.5 rounded-md bg-primary/10 text-primary">
+                  <MessageSquare className="h-4 w-4" />
+                </div>
+                Entrevista con IA
               </CardTitle>
-              <CardDescription className="text-xs mt-1">
+              <CardDescription className="text-sm font-medium">
                 {grabando ? (
-                  <span className="text-red-600 font-medium flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                  <span className="text-red-500 flex items-center gap-2">
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+                    </span>
                     Grabando · {formatTiempo(timer)}
                   </span>
                 ) : (
@@ -308,34 +316,35 @@ export function SimuladorSection() {
             </div>
             <div className="flex items-center gap-2">
               {conectado ? (
-                <Badge variant="outline" className="text-[10px] text-emerald-600 border-emerald-500/30">
-                  <Wifi className="h-3 w-3 mr-1" /> Conectado
+                <Badge variant="secondary" className="text-xs font-medium bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 border-emerald-500/20">
+                  <Wifi className="h-3 w-3 mr-1.5" /> Conectado
                 </Badge>
               ) : grabando ? (
-                <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-500/30">
-                  <WifiOff className="h-3 w-3 mr-1" /> Reconectando...
+                <Badge variant="secondary" className="text-xs font-medium bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 border-amber-500/20">
+                  <WifiOff className="h-3 w-3 mr-1.5" /> Reconectando
                 </Badge>
               ) : null}
               {grabando && (
-                <Button variant="outline" size="sm" onClick={detenerGrabacion}>
-                  <Square className="h-3 w-3 mr-1" /> Detener
+                <Button variant="destructive" size="sm" onClick={detenerGrabacion} className="h-8 shadow-sm">
+                  <Square className="h-3.5 w-3.5 mr-1.5" /> Detener
                 </Button>
               )}
             </div>
           </div>
         </CardHeader>
-        <CardContent className="flex-1 p-0 overflow-hidden">
-          <ScrollArea className="h-full" ref={scrollRef as never}>
-            <div className="p-4 space-y-3">
+        
+        <CardContent className="flex-1 p-0 overflow-hidden relative z-10 bg-background/20">
+          <ScrollArea className="h-full absolute inset-0" ref={scrollRef as never}>
+            <div className="p-5 space-y-4">
               {mensajes.length === 0 && !grabando && (
-                <div className="h-full flex flex-col items-center justify-center text-center space-y-3 p-6">
-                  <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
-                    <Sparkles className="h-8 w-8 text-primary" />
+                <div className="h-full min-h-[300px] flex flex-col items-center justify-center text-center space-y-4 p-8 animate-in fade-in duration-700">
+                  <div className="h-20 w-20 rounded-full bg-primary/5 flex items-center justify-center ring-1 ring-primary/10 shadow-sm">
+                    <Mic className="h-10 w-10 text-primary/40" />
                   </div>
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold">Presiona el micrófono para empezar</p>
-                    <p className="text-xs text-muted-foreground max-w-xs">
-                      La IA te entrevistará para conocer tu negocio. Habla naturalmente.
+                  <div className="space-y-2 max-w-[280px]">
+                    <p className="text-base font-medium text-foreground">Asistente de Configuración</p>
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                      Habla naturalmente sobre tus servicios, precios y horarios. La IA se encargará del resto.
                     </p>
                   </div>
                 </div>
@@ -350,10 +359,10 @@ export function SimuladorSection() {
                 >
                   <div
                     className={cn(
-                      "max-w-[80%] rounded-lg px-3 py-2 text-sm",
+                      "max-w-[85%] rounded-2xl px-4 py-2.5 text-sm shadow-sm",
                       m.rol === "user"
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted"
+                        ? "bg-primary text-primary-foreground rounded-br-sm"
+                        : "bg-white dark:bg-zinc-800 border border-border/50 rounded-bl-sm"
                     )}
                   >
                     {m.texto}
@@ -362,10 +371,10 @@ export function SimuladorSection() {
               ))}
               {grabando && estadoSesion !== "idle" && (
                 <div className="flex justify-start">
-                  <div className="bg-muted rounded-lg px-3 py-2 flex items-center gap-2">
+                  <div className="bg-white dark:bg-zinc-800 border border-border/50 shadow-sm rounded-2xl rounded-bl-sm px-4 py-2.5 flex items-center gap-3">
                     <span
                       className={cn(
-                        "text-xs text-muted-foreground",
+                        "text-sm font-medium text-muted-foreground",
                         (estadoSesion === "iniciada" || estadoSesion === "comienza" || estadoSesion === "ia_hablando") &&
                           "animate-pulse"
                       )}
@@ -373,10 +382,10 @@ export function SimuladorSection() {
                       {TEXTO_ESTADO[estadoSesion]}
                     </span>
                     {(estadoSesion === "escuchando" || estadoSesion === "procesando") && (
-                      <div className="flex gap-1">
-                        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "0ms" }} />
-                        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "150ms" }} />
-                        <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "300ms" }} />
+                      <div className="flex gap-1.5 items-center h-4">
+                        <span className="h-1.5 w-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: "0ms" }} />
+                        <span className="h-1.5 w-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: "150ms" }} />
+                        <span className="h-1.5 w-1.5 rounded-full bg-primary/60 animate-bounce" style={{ animationDelay: "300ms" }} />
                       </div>
                     )}
                   </div>
@@ -386,94 +395,112 @@ export function SimuladorSection() {
           </ScrollArea>
         </CardContent>
 
-        <div className="border-t border-border p-4 flex flex-col items-center gap-3">
+        <div className="p-6 flex flex-col items-center justify-center bg-background/50 backdrop-blur-sm border-t border-border/50 z-10">
           {grabando ? (
-            <MicButton
-              onAudioChunk={enviarAudio}
-              onStart={() => {}}
-              onStop={detenerGrabacion}
-              autoStart
-            />
+            <div className="scale-110 transition-transform">
+              <MicButton
+                onAudioChunk={enviarAudio}
+                onStart={() => {}}
+                onStop={detenerGrabacion}
+                autoStart
+              />
+            </div>
           ) : (
             <button
               onClick={iniciarGrabacion}
-              className="relative h-20 w-20 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/30 flex items-center justify-center transition-all"
+              className="group relative h-20 w-20 rounded-full bg-primary text-primary-foreground shadow-lg shadow-primary/25 hover:shadow-primary/40 flex items-center justify-center transition-all duration-300 hover:scale-105 active:scale-95"
             >
-              <Mic className="h-8 w-8" />
+              <div className="absolute inset-0 rounded-full bg-primary animate-ping opacity-20 group-hover:opacity-40 transition-opacity" />
+              <Mic className="h-8 w-8 relative z-10" />
             </button>
           )}
         </div>
       </Card>
 
-      <Card className="panel-wa flex flex-col h-[calc(100vh-12rem)]">
-        <CardHeader className="pb-3 border-b border-border">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Code className="h-4 w-4 text-primary" />
-                Información de tu negocio
+      {/* Tarjeta de Información */}
+      <Card className="flex flex-col h-[600px] shadow-sm border-muted/60 relative overflow-hidden">
+        <CardHeader className="pb-4 border-b border-border/50 bg-background/50 backdrop-blur-sm z-10">
+          <div className="flex items-start justify-between">
+            <div className="space-y-1.5">
+              <CardTitle className="text-lg font-semibold tracking-tight flex items-center gap-2">
+                <div className="p-1.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                  <Brain className="h-4 w-4" />
+                </div>
+                Conocimiento Extraído
               </CardTitle>
-              <CardDescription className="text-xs mt-1">
-                El asistente recopila esto durante la configuración. Puedes editarla cuando quieras.
+              <CardDescription className="text-sm">
+                Información que la IA ha aprendido de ti
               </CardDescription>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={reiniciar} disabled={!contextoExtraido}>
-                <RefreshCw className="h-3.5 w-3.5 mr-1" />
-                Re-entrevistar
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={reiniciar} 
+                disabled={!contextoExtraido}
+                className="h-8 shadow-sm hover:bg-destructive/5 hover:text-destructive hover:border-destructive/30 transition-colors"
+              >
+                <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                Reiniciar
               </Button>
-              <Button size="sm" onClick={guardarContexto} disabled={guardando || !contextoExtraido.trim()}>
-                <Save className="h-3.5 w-3.5 mr-1" />
-                {guardando ? "Guardando..." : "Guardar"}
+              <Button 
+                size="sm" 
+                onClick={guardarContexto} 
+                disabled={guardando || !contextoExtraido.trim()}
+                className="h-8 shadow-sm"
+              >
+                <Save className="h-3.5 w-3.5 mr-1.5" />
+                {guardando ? "Guardando..." : "Guardar Cambios"}
               </Button>
             </div>
           </div>
         </CardHeader>
-        <CardContent className="flex-1 p-3">
+
+        <CardContent className="flex-1 p-4 flex flex-col min-h-0 bg-background/20 z-10">
           {!contextoExtraido && !grabando ? (
-            <div className="h-full flex flex-col items-center justify-center text-center space-y-3 p-6">
-              <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
-                <Sparkles className="h-8 w-8 text-primary" />
+            <div className="h-full flex flex-col items-center justify-center text-center space-y-4 p-8 animate-in fade-in duration-700">
+              <div className="h-20 w-20 rounded-full bg-blue-500/5 flex items-center justify-center ring-1 ring-blue-500/10 shadow-sm">
+                <Code className="h-10 w-10 text-blue-500/40" />
               </div>
-              <div className="space-y-1">
-                <p className="text-sm font-semibold">Tu contexto aparecerá aquí</p>
-                <p className="text-xs text-muted-foreground max-w-xs">
-                  La IA extraerá automáticamente la información de tu negocio durante la entrevista.
-                  Después podrás editarla manualmente.
+              <div className="space-y-2 max-w-[280px]">
+                <p className="text-base font-medium text-foreground">Sin información</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  Realiza la entrevista para que la IA extraiga automáticamente los detalles de tu negocio.
                 </p>
               </div>
             </div>
           ) : (
-            <>
+            <div className="flex-1 flex flex-col min-h-0 relative group">
+              <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-primary/5 via-transparent to-transparent opacity-0 group-focus-within:opacity-100 transition-opacity pointer-events-none" />
               <Textarea
                 value={contextoExtraido}
                 onChange={(e) => setContextoExtraido(e.target.value)}
-                rows={20}
-                className="h-full resize-none font-mono text-xs"
-                placeholder="El contexto extraído aparecerá aquí..."
+                className="flex-1 resize-none font-mono text-sm leading-relaxed p-5 bg-white/50 dark:bg-zinc-900/50 border-muted-foreground/20 focus-visible:ring-primary/30 focus-visible:border-primary/50 shadow-inner"
+                placeholder="La información de tu negocio aparecerá estructurada aquí..."
               />
-              <div className="flex items-center justify-between mt-2 text-xs text-muted-foreground">
-                <span>{contextoExtraido.length} caracteres</span>
+              <div className="flex items-center justify-end mt-3 text-xs font-medium text-muted-foreground">
+                <span className="bg-muted px-2 py-1 rounded-md">{contextoExtraido.length} caracteres</span>
               </div>
-            </>
+            </div>
           )}
         </CardContent>
       </Card>
 
-      <Card className="panel-wa lg:col-span-2 bg-blue-500/5 border-blue-500/20">
-        <CardContent className="p-4 flex items-start gap-3">
-          <Info className="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
-          <div className="space-y-1 text-sm">
-            <p className="font-semibold text-blue-700 dark:text-blue-300">
-              ¿Cómo funciona?
+      {/* Banner de Ayuda */}
+      <Card className="lg:col-span-2 shadow-sm border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 dark:border-blue-900/50 overflow-hidden relative">
+        <div className="absolute top-0 right-0 -mt-4 -mr-4 h-24 w-24 rounded-full bg-blue-500/10 blur-2xl pointer-events-none" />
+        <CardContent className="p-5 flex items-start gap-4 relative z-10">
+          <div className="p-2 bg-blue-100 dark:bg-blue-900/50 rounded-lg shrink-0">
+            <Info className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+          </div>
+          <div className="space-y-1.5 flex-1">
+            <p className="font-semibold text-blue-800 dark:text-blue-300 text-sm">
+              ¿Cómo configurar tu asistente?
             </p>
-            <p className="text-xs text-muted-foreground">
-              El asistente de voz te hará una entrevista hablada. Contesta con naturalidad:
-              preguntará por tus servicios, precios y horarios. Al terminar, guarda la
-              información que usará en las llamadas con tus clientes.
-            </p>
-            <p className="text-xs text-muted-foreground">
-              <strong>Necesitas:</strong> permitir el acceso al micrófono.
+            <p className="text-sm text-blue-700/80 dark:text-blue-400/80 leading-relaxed max-w-4xl">
+              Inicia la grabación y permite el acceso al micrófono. El asistente te hará preguntas clave sobre los servicios que ofreces, 
+              tus precios, horarios de atención y políticas. Responde con naturalidad, como si hablaras con un humano. 
+              Al finalizar, generaremos automáticamente un resumen estructurado que podrás editar y guardar.
             </p>
           </div>
         </CardContent>

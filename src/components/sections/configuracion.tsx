@@ -107,6 +107,7 @@ export function ConfiguracionSection() {
   const [settings, setSettings] = React.useState<BusinessSettings | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
+  const [uploadingLogo, setUploadingLogo] = React.useState(false);
   const [searchModalOpen, setSearchModalOpen] = React.useState(false);
   const [llamadas, setLlamadas] = React.useState<LlamadaItem[]>([]);
   const [transcriptOpen, setTranscriptOpen] = React.useState<number | null>(null);
@@ -163,6 +164,39 @@ export function ConfiguracionSection() {
   React.useEffect(() => {
     cargarLlamadas();
   }, [cargarLlamadas]);
+
+  const handleUploadLogo = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !settings) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("El archivo es demasiado grande (máximo 5MB)");
+      return;
+    }
+    setUploadingLogo(true);
+    try {
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        try {
+          const base64String = (event.target?.result as string).split(",")[1];
+          const res = await ApiClient.post<{url: string}>("/api/upload-logo", {
+            base64Data: base64String,
+            fileName: file.name,
+            mimeType: file.type
+          });
+          setSettings({ ...settings, landingLogo: res.url });
+          toast.success("Logo subido con éxito");
+        } catch (err: any) {
+          toast.error("Error al subir el logo");
+        } finally {
+          setUploadingLogo(false);
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (error) {
+      setUploadingLogo(false);
+      toast.error("Error al procesar el archivo");
+    }
+  };
 
   const guardar = async (parcial?: Partial<BusinessSettings>) => {
     if (!usuario || !settings) return;
@@ -981,6 +1015,23 @@ export function ConfiguracionSection() {
               {/* Col 2 */}
               <div className="space-y-4">
                 <div className="space-y-2">
+                  <Label>Logotipo de la Empresa</Label>
+                  <div className="flex gap-4 items-center">
+                    {settings.landingLogo && (
+                      <img src={settings.landingLogo} alt="Logo" className="w-16 h-16 object-contain rounded border" />
+                    )}
+                    <Input 
+                      type="file"
+                      accept="image/*"
+                      onChange={handleUploadLogo}
+                      disabled={uploadingLogo}
+                    />
+                  </div>
+                  {uploadingLogo && <p className="text-sm text-emerald-600">Subiendo logo...</p>}
+                  <p className="text-xs text-muted-foreground">Sube el logo de tu empresa (PNG, JPG). Máx 5MB.</p>
+                </div>
+
+                <div className="space-y-2">
                   <Label>Descripción de la Landing</Label>
                   <Textarea 
                     rows={4}
@@ -999,7 +1050,8 @@ export function ConfiguracionSection() {
                 depositoMinimo: settings.depositoMinimo,
                 registrationSlug: settings.registrationSlug,
                 landingColorPrimario: settings.landingColorPrimario,
-                landingDescripcion: settings.landingDescripcion
+                landingDescripcion: settings.landingDescripcion,
+                landingLogo: settings.landingLogo
               })} 
               disabled={saving}
             >

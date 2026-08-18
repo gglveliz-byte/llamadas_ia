@@ -111,7 +111,7 @@ telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
 
         // 2. Verificar saldo
         const endCustomerPhone = direction === "incoming" ? from : to; // Si es incoming, from es el cliente. Si es outgoing, to es el cliente.
-        const saldoOk = await verificarSaldo(userId, endCustomerPhone || "");
+        const { saldoOk, maxSegundos } = await verificarSaldo(userId, endCustomerPhone || "");
         if (!saldoOk) {
           logger.warn({ userId, endCustomerPhone }, "[WEBHOOK TELNYX] ❌ Saldo insuficiente o cliente no registrado. Rechazando llamada para evitar cobros.");
           await rejectCall(call_control_id, "user_busy").catch(() => {});
@@ -148,7 +148,7 @@ telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
         
         // Solo contestar aquí. El streaming se iniciará en el evento call.answered para evitar race conditions en Telnyx
         pendingInboundStreams.set(call_control_id, { userId, b64State, from: from || "" });
-        await answerCall(call_control_id, b64State);
+        await answerCall(call_control_id, b64State, maxSegundos);
         logger.info({ call_control_id, userId }, "[WEBHOOK TELNYX] Llamada contestada. Esperando evento call.answered para iniciar stream...");
 
         // 6. Registrar métrica
@@ -285,20 +285,57 @@ async function handleCallHangup(callControlId: string): Promise<void> {
 
     const duracionSegundos = Math.round((Date.now() - metric.inicio.getTime()) / 1000);
 
-    // 1. Debitar
-    const customerPhone = metric.callerNumber || metric.toNumber || "";
-    const { monto, saldoNuevo } = await (await import("../services/billing.service")).debitarLlamada(
-      metric.userId,
-      customerPhone,
-      callControlId,
-      duracionSegundos
-    );
+    // 1. Determinar dirección de la llamada y Debitar
+    const isOutbound = !!(await db.phoneNumber.findFirst({
+      where: { phoneNumber: metric.callerNumber || "", userId: metric.userId }
+    }));
 
-    // 2. Actualizar métrica
-    await db.callMetric.update({
-      where: { id: metric.id },
+    let monto = 0;
+    let saldoNuevo = 0;
+
+    if (isOutbound) {
+      // Outbound (Dueño llama): Lock atómico en callMetric
+      const lock = await db.callMetric.updateMany({
+        where: { callSid: callControlId, fin: null },
+        data: { fin: new Date() }
+      });
+      if (lock.count === 0) {
+        logger.warn({ callControlId }, "Hangup saliente procesado concurrentemente");
+        return;
+      }
+
+      const adminConfig = await db.adminConfig.findUnique({ where: { clave: "precio_minuto_minimo" } });
+      const precioPiso = parseFloat(adminConfig?.valor || "0.50");
+      const configCobro = await db.adminConfig.findUnique({ where: { clave: "cobro_por_segundo" } });
+      const cobroPorSegundo = configCobro?.valor === "true";
+      const minutosConsumidos = cobroPorSegundo ? duracionSegundos / 60 : Math.ceil(duracionSegundos / 60);
+      const costoTotal = Math.round(precioPiso * minutosConsumidos * 10000) / 10000;
+
+      const res = await (await import("../services/billing.service")).debitarConcepto(
+        metric.userId,
+        costoTotal,
+        "Llamada Saliente con IA",
+        callControlId
+      );
+      monto = costoTotal;
+      saldoNuevo = res.saldoNuevo;
+    } else {
+      // Inbound (Cliente llama): debitarLlamada hace el lock atómico internamente
+      const customerPhone = metric.callerNumber || metric.toNumber || "";
+      const res = await (await import("../services/billing.service")).debitarLlamada(
+        metric.userId,
+        customerPhone,
+        callControlId,
+        duracionSegundos
+      );
+      monto = res.monto;
+      saldoNuevo = res.saldoNuevo;
+    }
+
+    // 2. Actualizar métrica (fin ya fue seteado atómicamente, actualizamos el resto)
+    await db.callMetric.updateMany({
+      where: { callSid: callControlId },
       data: {
-        fin: new Date(),
         duracionSegundos,
         cobroAplicado: monto,
       },

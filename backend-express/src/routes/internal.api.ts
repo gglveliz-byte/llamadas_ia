@@ -25,6 +25,8 @@ import { enviarEmail, emailTemplates } from "../services/email.service";
 import { encrypt } from "../utils/encryption";
 import { saldoPermiteCobro, debitarConcepto, reversarConcepto, verificarSaldo } from "../services/billing.service";
 import { procesarRentasUsuario } from "../services/rentas.service";
+import { getS3 } from "../services/audio.service";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
 
 export const internalRouter = Router();
 
@@ -522,8 +524,10 @@ internalRouter.post("/telnyx/outbound-call", async (req, res) => {
     return res.status(400).json({ error: "El número de origen no es tuyo o no está activo." });
   }
 
-  if (!(await verificarSaldo(userId, to))) {
-    return res.status(402).json({ error: "Saldo insuficiente para iniciar una llamada saliente." });
+  // Verificamos el saldo del Dueño (Tenant), no del cliente final (ya que la inicia el dueño desde su panel)
+  const { saldoOk, maxSegundos } = await saldoPermiteCobro(userId, 0);
+  if (!saldoOk) {
+    return res.status(402).json({ error: "Saldo insuficiente en tu cuenta para iniciar una llamada saliente." });
   }
 
   try {
@@ -534,6 +538,7 @@ internalRouter.post("/telnyx/outbound-call", async (req, res) => {
       to,
       webhookUrl,
       clientState: clientStateObj,
+      timeLimitSecs: maxSegundos,
     });
 
     await db.callMetric
@@ -774,5 +779,43 @@ internalRouter.post("/email", async (req, res) => {
   } catch (e) {
     logger.error({ error: (e as Error).message, to }, "Error enviando email interno");
     res.status(500).json({ error: "Error enviando email" });
+  }
+});
+
+
+/**
+ * POST /internal/upload-logo
+ * Sube una imagen en base64 a R2 y devuelve la URL
+ */
+internalRouter.post("/upload-logo", async (req, res) => {
+  try {
+    const { base64Data, fileName, mimeType } = req.body;
+    if (!base64Data || !fileName || !mimeType) {
+      return res.status(400).json({ error: "Faltan datos de la imagen" });
+    }
+
+    const s3 = getS3();
+    if (!s3) {
+      return res.status(500).json({ error: "R2 no configurado" });
+    }
+
+    const buffer = Buffer.from(base64Data, "base64");
+    const safeFileName = `${Date.now()}-${fileName.replace(/[^a-zA-Z0-9.\-]/g, "")}`;
+    const key = `logos/${safeFileName}`;
+
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: process.env.R2_BUCKET_NAME!,
+        Key: key,
+        Body: buffer,
+        ContentType: mimeType,
+      })
+    );
+
+    const publicUrl = `/api/logo/${safeFileName}`;
+    res.json({ url: publicUrl });
+  } catch (error: any) {
+    logger.error(error, "Error subiendo logo a R2");
+    res.status(500).json({ error: "Error interno subiendo archivo", details: error.message });
   }
 });

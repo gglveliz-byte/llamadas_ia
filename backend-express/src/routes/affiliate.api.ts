@@ -61,6 +61,95 @@ affiliateRouter.get("/admin/list", requireAdmin, async (req, res) => {
 });
 
 /**
+ * GET /api/affiliates/public/config
+ * Obtiene los valores por defecto públicos para mostrar en la landing de registro
+ */
+affiliateRouter.get("/public/config", async (req, res) => {
+  try {
+    const comisionCfg = await db.adminConfig.findUnique({ where: { clave: "afiliado_comision_minuto_default" } });
+    const feeCfg = await db.adminConfig.findUnique({ where: { clave: "fee_instalacion_minimo" } });
+    const gananciaCfg = await db.adminConfig.findUnique({ where: { clave: "afiliado_ganancia_instalacion_default" } });
+
+    res.json({
+      comisionPorMinuto: parseFloat(comisionCfg?.valor || "0.05"),
+      feeInstalacion: parseFloat(feeCfg?.valor || "200.00"),
+      gananciaInstalacion: parseFloat(gananciaCfg?.valor || "50.00"),
+    });
+  } catch (error) {
+    logger.error(error, "Error en GET /api/affiliates/public/config");
+    res.json({ comisionPorMinuto: 0.05, feeInstalacion: 200, gananciaInstalacion: 50 }); // Fallback seguro
+  }
+});
+
+/**
+ * POST /api/affiliates/public/register
+ * Registro público de afiliados
+ */
+affiliateRouter.post("/public/register", async (req, res) => {
+  try {
+    const schema = z.object({
+      nombre: z.string().min(1, "El nombre es obligatorio"),
+      email: z.string().email("Email inválido"),
+      password: z.string().min(6, "Mínimo 6 caracteres")
+    });
+
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Datos inválidos", issues: parsed.error.issues });
+    }
+
+    const { nombre, email, password } = parsed.data;
+
+    // Verificar si el email ya existe en afiliados o usuarios
+    const exists = await db.affiliate.findFirst({ where: { email } });
+    const userExists = await db.user.findFirst({ where: { email } });
+
+    if (exists || userExists) {
+      return res.status(400).json({ error: "Este correo electrónico ya está registrado." });
+    }
+
+    // Generar slug único
+    let baseSlug = nombre.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)+/g, "");
+    if (!baseSlug) baseSlug = "afiliado";
+    
+    let slug = `${baseSlug}-${crypto.randomBytes(2).toString("hex")}`;
+    while (await db.affiliate.findFirst({ where: { slug } })) {
+      slug = `${baseSlug}-${crypto.randomBytes(3).toString("hex")}`;
+    }
+
+    const passwordHash = hashPassword(password);
+
+    // Valores por defecto dinámicos desde AdminConfig
+    const comisionCfg = await db.adminConfig.findUnique({ where: { clave: "afiliado_comision_minuto_default" } });
+    const feeCfg = await db.adminConfig.findUnique({ where: { clave: "fee_instalacion_minimo" } });
+    const gananciaCfg = await db.adminConfig.findUnique({ where: { clave: "afiliado_ganancia_instalacion_default" } });
+
+    const comisionPorMinuto = parseFloat(comisionCfg?.valor || "0.05");
+    const feeInstalacion = parseFloat(feeCfg?.valor || "200.00");
+    const gananciaInstalacion = parseFloat(gananciaCfg?.valor || "50.00");
+
+    const afiliado = await db.affiliate.create({
+      data: {
+        nombre,
+        email,
+        passwordHash,
+        slug,
+        comisionPorMinuto,
+        feeInstalacion,
+        gananciaInstalacion,
+        isActive: true
+      }
+    });
+
+    res.json({ success: true, message: "Afiliado registrado exitosamente", afiliadoId: afiliado.id });
+  } catch (error: any) {
+    logger.error(error, "Error en POST /api/affiliates/public/register");
+    require("fs").appendFileSync("error-debug.log", "\n" + Date.now() + " " + (error?.stack || error?.message || String(error)));
+    res.status(500).json({ error: "Error interno del servidor", details: error?.message });
+  }
+});
+
+/**
  * POST /api/admin/affiliates
  * Crea un nuevo afiliado
  */
@@ -105,7 +194,7 @@ affiliateRouter.post("/admin/create", requireAdmin, async (req, res) => {
         passwordHash,
         comisionPorMinuto,
         feeInstalacion,
-        porcentajeInstalacion: req.body.porcentajeInstalacion ?? 50
+        gananciaInstalacion: req.body.gananciaInstalacion ?? 50
       }
     });
 
@@ -125,7 +214,7 @@ affiliateRouter.patch("/admin/:id", requireAdmin, async (req, res) => {
     const schema = z.object({
       comisionPorMinuto: z.number().min(0).optional(),
       feeInstalacion: z.number().min(0).optional(),
-      porcentajeInstalacion: z.number().min(0).max(100).optional(),
+      gananciaInstalacion: z.number().min(0).optional(),
       isActive: z.boolean().optional(),
     });
 

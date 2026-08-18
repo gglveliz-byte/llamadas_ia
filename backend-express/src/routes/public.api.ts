@@ -3,6 +3,8 @@ import { db } from "../models/database.pool";
 import { logger } from "../utils/logger";
 import { z } from "zod";
 import { Whop } from "@whop/sdk";
+import { getS3 } from "../services/audio.service";
+import { GetObjectCommand } from "@aws-sdk/client-s3";
 
 export const publicRouter = Router();
 
@@ -251,5 +253,44 @@ publicRouter.post("/customer/refund", async (req, res) => {
   } catch (error) {
     logger.error(error, "Error en POST /customer/refund");
     res.status(500).json({ error: "Error interno" });
+  }
+});
+
+
+
+/**
+ * GET /api/public/logo/:filename
+ * Sirve el logo de la empresa desde R2 de forma pública.
+ */
+publicRouter.get("/logo/:filename", async (req, res) => {
+  try {
+    const s3 = getS3();
+    if (!s3) {
+      return res.status(500).json({ error: "R2 no configurado" });
+    }
+
+    const { filename } = req.params;
+    const command = new GetObjectCommand({
+      Bucket: process.env.R2_BUCKET_NAME!,
+      Key: `logos/${filename}`
+    });
+
+    const item = await s3.send(command);
+    res.setHeader("Content-Type", item.ContentType || "image/png");
+    res.setHeader("Cache-Control", "public, max-age=31536000");
+
+    if (item.Body) {
+      // item.Body is a Node.js Readable stream
+      (item.Body as any).pipe(res);
+    } else {
+      res.status(404).send("Not found");
+    }
+  } catch (err: any) {
+    if (err.name === "NoSuchKey") {
+      res.status(404).send("Logo no encontrado");
+    } else {
+      logger.error(err, "Error sirviendo logo");
+      res.status(500).send("Error sirviendo logo");
+    }
   }
 });

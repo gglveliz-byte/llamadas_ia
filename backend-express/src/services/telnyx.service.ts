@@ -288,7 +288,8 @@ export async function createOutboundCall(params: {
   from: string;
   to: string;
   webhookUrl: string;
-  clientState: string;
+  clientState?: string;
+  timeLimitSecs?: number;
 }): Promise<{ callControlId: string }> {
   const body: Record<string, unknown> = {
     connection_id: process.env.TELNYX_CONNECTION_ID,
@@ -296,7 +297,8 @@ export async function createOutboundCall(params: {
     to: params.to,
     webhook_url: params.webhookUrl,
     // Telnyx exige client_state en base64 (error 90017 si no)
-    client_state: Buffer.from(params.clientState).toString("base64"),
+    client_state: params.clientState ? Buffer.from(params.clientState).toString("base64") : undefined,
+    time_limit_secs: params.timeLimitSecs,
   };
 
   let data: { data: TelnyxCallControl };
@@ -531,12 +533,15 @@ function escapeXml(s: string): string {
  * Call Control API - Contesta llamada entrante.
  * POST /v2/calls/{call_control_id}/actions/answer
  */
-export async function answerCall(callControlId: string, clientState?: string): Promise<TelnyxCallControl> {
+export async function answerCall(callControlId: string, clientState?: string, timeLimitSecs?: number): Promise<TelnyxCallControl> {
   const data = await telnyxFetch<{ data: TelnyxCallControl }>(
     `/calls/${callControlId}/actions/answer`,
     {
       method: "POST",
-      body: JSON.stringify({ client_state: clientState }),
+      body: JSON.stringify({ 
+        client_state: clientState,
+        ...(timeLimitSecs ? { time_limit_secs: timeLimitSecs } : {})
+      }),
     }
   );
   return data.data;
@@ -679,7 +684,8 @@ export async function stopMediaFork(callControlId: string, forkId: string): Prom
 export async function startStreaming(
   callControlId: string,
   streamUrl: string,
-  clientState?: string
+  clientState?: string,
+  timeLimitSecs?: number
 ): Promise<boolean> {
   try {
     await telnyxFetch(`/calls/${callControlId}/actions/streaming_start`, {
@@ -697,6 +703,7 @@ export async function startStreaming(
         // el llamante. Ver demo oficial team-telnyx/realtime-ai-demo.
         stream_bidirectional_target_legs: "self",
         client_state: clientState,
+        time_limit_secs: timeLimitSecs,
       }),
     });
     return true;

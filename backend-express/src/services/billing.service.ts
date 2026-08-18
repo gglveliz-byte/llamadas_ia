@@ -13,31 +13,39 @@ import { calcularComisiones, aplicarComisiones } from "./commission.service";
 /**
  * Verifica si el cliente final tiene saldo suficiente (prepago) o depósito (retención).
  */
-export async function verificarSaldo(tenantId: string, endCustomerPhone: string): Promise<boolean> {
+export async function verificarSaldo(tenantId: string, endCustomerPhone: string): Promise<{ saldoOk: boolean; maxSegundos: number }> {
   const endCustomer = await db.endCustomer.findUnique({
     where: { tenantId_telefono: { tenantId, telefono: endCustomerPhone } }
   });
 
   if (!endCustomer) {
     logger.warn({ tenantId, endCustomerPhone }, "EndCustomer no encontrado al verificar saldo");
-    return false;
+    return { saldoOk: false, maxSegundos: 0 };
   }
+
+  const tenantSettings = await db.businessSettings.findUnique({ where: { userId: tenantId } });
+  const precioMinuto = tenantSettings?.precioPorMinuto.toNumber() || 0.50;
+
+  let maxSegundos = 0;
 
   // Tiene minutos prepagados?
   if (endCustomer.saldoMinutos.toNumber() > 0) {
-    return true;
+    maxSegundos += Math.floor(endCustomer.saldoMinutos.toNumber() * 60);
   }
 
-  // Tiene depósito de retención? (Asumimos $0 o más es válido, o > límite)
-  const limiteNegativo = await getConfig("limite_saldo_negativo");
-  const limite = parseFloat(limiteNegativo);
+  // Tiene depósito de retención de dinero? (Solo consideramos saldo > 0 ya que EndCustomer no puede ir a negativo en débito)
+  if (endCustomer.saldoDinero.toNumber() > 0) {
+    maxSegundos += Math.floor((endCustomer.saldoDinero.toNumber() / precioMinuto) * 60);
+  }
 
-  if (endCustomer.saldoDinero.toNumber() > limite) {
-    return true;
+  // Solo permitimos la llamada si tiene saldo para al menos 1 minuto (60 segundos)
+  if (maxSegundos >= 60) {
+    // Telnyx max limit is 14400 (4 hours)
+    return { saldoOk: true, maxSegundos: Math.min(maxSegundos, 14400) };
   }
 
   logger.info({ endCustomerPhone, saldoMinutos: endCustomer.saldoMinutos.toNumber(), saldoDinero: endCustomer.saldoDinero.toNumber() }, "Saldo insuficiente - llamada rechazada");
-  return false;
+  return { saldoOk: false, maxSegundos: 0 };
 }
 
 /**
@@ -68,12 +76,14 @@ export async function debitarLlamada(
   let resultado: { monto: number; saldoNuevo: number };
   try {
     resultado = await db.$transaction(async (tx) => {
-      // Idempotencia: si esta llamada ya fue cobrada (fin != null en CallMetric), no volver a cobrar.
-      const metricYaCobrada = await tx.callMetric.findFirst({
-        where: { callSid: callSid, fin: { not: null } }
+      // Idempotencia Atómica: Intentamos actualizar `fin`. Si ya no estaba null, updateMany devuelve count 0.
+      const updateResult = await tx.callMetric.updateMany({
+        where: { callSid: callSid, fin: null },
+        data: { fin: new Date() }
       });
-      if (metricYaCobrada) {
-        logger.warn({ callSid }, "debitarLlamada: llamada ya cobrada - omitiendo débito duplicado");
+
+      if (updateResult.count === 0) {
+        logger.warn({ callSid }, "debitarLlamada: llamada ya cobrada (o no existe) - omitiendo débito duplicado por race condition");
         const txEnd = await tx.endCustomer.findUnique({ where: { id: endCustomer.id } });
         return { monto: 0, saldoNuevo: txEnd?.saldoMinutos.toNumber() ?? 0 };
       }
@@ -153,11 +163,25 @@ export async function saldoPermiteCobroEndCustomer(tenantId: string, endCustomer
  * True si tras cobrar `monto` el saldo (Ganancias) del Dueño quedaría por encima del límite.
  * Usado para cobrar Rentas de Números Telefónicos.
  */
-export async function saldoPermiteCobro(userId: string, monto: number): Promise<boolean> {
+export async function saldoPermiteCobro(userId: string, monto: number): Promise<{ saldoOk: boolean; maxSegundos: number }> {
   const wallet = await db.wallet.findUnique({ where: { userId } });
-  if (!wallet) return false;
+  if (!wallet) return { saldoOk: false, maxSegundos: 0 };
   const limite = parseFloat(await getConfig("limite_saldo_negativo"));
-  return wallet.saldo.toNumber() - monto >= limite;
+  
+  const saldoDisponible = wallet.saldo.toNumber() - limite;
+  if (saldoDisponible < monto) return { saldoOk: false, maxSegundos: 0 };
+
+  const adminConfig = await db.adminConfig.findUnique({ where: { clave: "precio_minuto_minimo" } });
+  const precioPiso = parseFloat(adminConfig?.valor || "0.50");
+
+  const maxSegundos = Math.floor((saldoDisponible / precioPiso) * 60);
+  
+  // Requiere al menos 1 minuto de saldo
+  if (maxSegundos >= 60) {
+    return { saldoOk: true, maxSegundos: Math.min(maxSegundos, 14400) };
+  }
+  
+  return { saldoOk: false, maxSegundos: 0 };
 }
 
 /**

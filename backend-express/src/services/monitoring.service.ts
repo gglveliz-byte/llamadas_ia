@@ -71,21 +71,22 @@ export function iniciarMonitoreo(): void {
   if (intervalMonitor) return;
 
   intervalMonitor = setInterval(async () => {
-    const metrica = obtenerMetricasActuales();
-    historial.push(metrica);
-    if (historial.length > HISTORIAL_MAX) historial.shift();
+    try {
+      const metrica = obtenerMetricasActuales();
+      historial.push(metrica);
+      if (historial.length > HISTORIAL_MAX) historial.shift();
 
-    // Verificar umbrales
-    const umbrales = await obtenerUmbrales();
-    const ahora = Date.now();
-    const alertar =
-      metrica.cpu > umbrales.cpu ||
-      metrica.ram > umbrales.ram ||
-      metrica.latencia > umbrales.latencia;
+      // Verificar umbrales
+      const umbrales = await obtenerUmbrales();
+      const ahora = Date.now();
+      const alertar =
+        metrica.cpu > umbrales.cpu ||
+        metrica.ram > umbrales.ram ||
+        metrica.latencia > umbrales.latencia;
 
-    if (alertar && ahora - ultimoUmbralAlerta > 5 * 60 * 1000) {
-      ultimoUmbralAlerta = ahora;
-      const mensaje = `⚠️ Alerta VozIA:
+      if (alertar && ahora - ultimoUmbralAlerta > 5 * 60 * 1000) {
+        ultimoUmbralAlerta = ahora;
+        const mensaje = `⚠️ Alerta VozIA:
 CPU: ${metrica.cpu.toFixed(1)}% (umbral ${umbrales.cpu}%)
 RAM: ${metrica.ram.toFixed(1)}% (umbral ${umbrales.ram}%)
 Latencia: ${metrica.latencia.toFixed(0)}ms (umbral ${umbrales.latencia}ms)
@@ -93,13 +94,16 @@ Llamadas activas: ${metrica.llamadas}
 Heap: ${metrica.heapMb.toFixed(1)} MB
 Uptime: ${Math.floor(metrica.uptime / 60)} min`;
 
-      logger.warn({ metrica, umbrales }, "Umbral excedido - emitiendo alerta");
+        logger.warn({ metrica, umbrales }, "Umbral excedido - emitiendo alerta");
 
-      // Emitir SSE a todos los admins conectados
-      emitirSSEAdmin("alerta_sistema", { metrica, umbrales, mensaje });
+        // Emitir SSE a todos los admins conectados
+        emitirSSEAdmin("alerta_sistema", { metrica, umbrales, mensaje });
 
-      // Enviar email al admin (fire-and-forget: no bloquear el tick de 10s)
-      enviarAlertaAdmin(mensaje).catch(() => {});
+        // Enviar email al admin (fire-and-forget: no bloquear el tick de 10s)
+        enviarAlertaAdmin(mensaje).catch(() => {});
+      }
+    } catch (e) {
+      logger.error({ error: (e as Error).message }, "Error en tick de monitoreo");
     }
   }, 10000);
 

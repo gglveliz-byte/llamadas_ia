@@ -148,7 +148,7 @@ export interface Wallet {
 export interface WalletTransaction {
   id: string;
   userId: string;
-  tipo: "recarga" | "debito" | "ajuste_admin" | "trial";
+  tipo: "recarga" | "debito" | "ajuste_admin" | "trial" | "ganancia_cliente";
   monto: number;
   saldoAnterior: number;
   saldoNuevo: number;

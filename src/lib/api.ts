@@ -134,7 +134,10 @@ export interface BusinessSettings {
   depositoMinimo?: number;
   registrationSlug?: string;
   landingColorPrimario?: string;
+  landingColorFondo?: string;
   landingDescripcion?: string;
+  landingLogo?: string;
+  landingImagenFondo?: string;
   updatedAt: string;
 }
 

@@ -25,20 +25,20 @@ model User {
   telnyxChildAccountId     String?
   telnyxProvisioningError  String?
   telnyxProvisioningStatus String              @default("none")
+  affiliateId              String?             @db.Uuid
+  installationAmount       Decimal?            @db.Decimal(10, 2)
+  installationPaid         Boolean             @default(false)
+  installationPaidAt       DateTime?
   appointments             Appointment[]
   settings                 BusinessSettings?
   metrics                  CallMetric[]
   recordings               CallRecording[]
   transcripts              CallTranscript[]
+  endCustomers             EndCustomer[]
   phoneNumbers             PhoneNumber[]
+  affiliate                Affiliate?          @relation(fields: [affiliateId], references: [id])
   wallet                   Wallet?
   transactions             WalletTransaction[]
-  affiliateId              String?             @db.Uuid
-  installationPaid         Boolean             @default(false)
-  installationPaidAt       DateTime?
-  installationAmount       Decimal?            @db.Decimal(10, 2)
-  affiliate                Affiliate?          @relation(fields: [affiliateId], references: [id])
-  endCustomers             EndCustomer[]
 
   @@map("users")
 }
@@ -46,9 +46,6 @@ model User {
 model BusinessSettings {
   userId                 String   @id @db.Uuid
   aiLanguage             String   @default("es")
-  aiVoice                String   @default("Dipper")
-  aiRegion               String   @default("es-MX")
-  mensajeSaludo          String?
   bookingMode            String   @default("hours")
   defaultDurationMinutes Int      @default(30)
   checkInTime            String   @default("15:00")
@@ -63,16 +60,19 @@ model BusinessSettings {
   systemPromptContext    String   @default("Eres un asistente amable que agenda citas...")
   recursos               Json     @default("[]")
   updatedAt              DateTime @updatedAt
-  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  registrationSlug       String?  @unique
-  precioPorMinuto        Decimal  @default(0.50) @db.Decimal(10, 4)
-  metodosPago            String[] @default(["prepago"])
+  aiVoice                String   @default("Dipper")
+  mensajeSaludo          String?
+  aiRegion               String   @default("es-MX")
   depositoMinimo         Decimal? @db.Decimal(10, 2)
-  landingLogo            String?
-  landingDescripcion     String?
-  landingColorPrimario   String?  @default("#10B981")
   landingColorFondo      String?  @default("#FFFFFF")
+  landingColorPrimario   String?  @default("#10B981")
+  landingDescripcion     String?
   landingImagenFondo     String?
+  landingLogo            String?
+  metodosPago            String[] @default(["prepago"])
+  precioPorMinuto        Decimal  @default(0.50) @db.Decimal(10, 4)
+  registrationSlug       String?  @unique
+  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("business_settings")
 }
@@ -100,7 +100,7 @@ model WalletTransaction {
   descripcion   String?
   createdAt     DateTime @default(now())
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade, map: "wallet_tx_user_fkey")
-  wallet        Wallet   @relation(fields: [userId], references: [userId], map: "wallet_tx_wallet_fkey")
+  user          Wallet   @relation(fields: [userId], references: [userId], map: "wallet_tx_user_fkey")
 
   @@unique([tipo, whopPaymentId])
   @@unique([tipo, callSid])
@@ -139,12 +139,12 @@ model PhoneNumber {
   isActive            Boolean       @default(true)
   purchasedAt         DateTime      @default(now())
   telnyxPhoneSid      String?
-  upfrontCost         Decimal?      @db.Decimal(10, 4)
-  monthlyCost         Decimal?      @db.Decimal(10, 4)
   currency            String        @default("USD")
   lastMonthlyChargeAt DateTime?
-  suspensionAt        DateTime?
+  monthlyCost         Decimal?      @db.Decimal(10, 4)
+  upfrontCost         Decimal?      @db.Decimal(10, 4)
   releasedAt          DateTime?
+  suspensionAt        DateTime?
   appointments        Appointment[]
   user                User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -164,11 +164,11 @@ model Appointment {
   endTime         DateTime?       @db.Timestamptz(6)
   durationMinutes Int?
   recursoId       String?
-  servicio        String?
   status          String          @default("agendado")
   notes           String?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
+  servicio        String?
   phoneNumber     PhoneNumber?    @relation(fields: [phoneNumberId], references: [id])
   user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   recordings      CallRecording[]
@@ -197,8 +197,6 @@ model CallMetric {
   id                 Int       @id @default(autoincrement())
   callSid            String?
   userId             String?   @db.Uuid
-  callerNumber       String?
-  toNumber           String?
   inicio             DateTime?
   fin                DateTime?
   duracionSegundos   Int?
@@ -207,6 +205,8 @@ model CallMetric {
   cobroAplicado      Decimal?  @db.Decimal(10, 4)
   errorCode          String?
   createdAt          DateTime  @default(now())
+  callerNumber       String?
+  toNumber           String?
   user               User?     @relation(fields: [userId], references: [id])
 
   @@index([userId, createdAt])
@@ -256,39 +256,37 @@ model AuditLog {
 }
 
 model Affiliate {
-  id                String    @id @default(uuid()) @db.Uuid
-  nombre            String
-  email             String    @unique
-  telefono          String?
-  passwordHash      String
-  slug              String    @unique
-  comisionPorMinuto Decimal   @default(0.05) @db.Decimal(10, 4)
-  feeInstalacion    Decimal   @db.Decimal(10, 2)
-  gananciaInstalacion Decimal @default(50) @db.Decimal(10, 2)
-  saldoAcumulado    Decimal   @default(0) @db.Decimal(10, 4)
-  totalGanado       Decimal   @default(0) @db.Decimal(10, 4)
-  isActive          Boolean   @default(true)
-  desactivadoAt     DateTime?
-  desactivadoMotivo String?
-  createdAt         DateTime  @default(now())
-
-  referidos User[]
+  id                  String    @id @default(uuid()) @db.Uuid
+  nombre              String
+  email               String    @unique
+  telefono            String?
+  passwordHash        String
+  slug                String    @unique
+  feeInstalacion      Decimal   @db.Decimal(10, 2)
+  saldoAcumulado      Decimal   @default(0) @db.Decimal(10, 4)
+  totalGanado         Decimal   @default(0) @db.Decimal(10, 4)
+  isActive            Boolean   @default(true)
+  desactivadoAt       DateTime?
+  desactivadoMotivo   String?
+  createdAt           DateTime  @default(now())
+  comisionPorMinuto   Decimal   @default(0.05) @db.Decimal(10, 4)
+  gananciaInstalacion Decimal   @default(50) @db.Decimal(10, 2)
+  referidos           User[]
 
   @@map("affiliates")
 }
 
 model EndCustomer {
-  id           String   @id @default(uuid()) @db.Uuid
-  tenantId     String   @db.Uuid
-  nombre       String
-  telefono     String
-  email        String?
-  saldoMinutos Decimal  @default(0) @db.Decimal(10, 2)
-  saldoDinero  Decimal  @default(0) @db.Decimal(10, 4)
-  createdAt    DateTime @default(now())
-
-  tenant         User                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id             String               @id @default(uuid()) @db.Uuid
+  tenantId       String               @db.Uuid
+  nombre         String
+  telefono       String
+  email          String?
+  saldoMinutos   Decimal              @default(0) @db.Decimal(10, 2)
+  saldoDinero    Decimal              @default(0) @db.Decimal(10, 4)
+  createdAt      DateTime             @default(now())
   pagos          EndCustomerPayment[]
+  tenant         User                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   refundRequests RefundRequest[]
 
   @@unique([tenantId, telefono])
@@ -296,37 +294,35 @@ model EndCustomer {
 }
 
 model EndCustomerPayment {
-  id                 String   @id @default(uuid()) @db.Uuid
-  endCustomerId      String   @db.Uuid
-  tenantId           String   @db.Uuid
-  whopPaymentId      String   @unique
+  id                 String      @id @default(uuid()) @db.Uuid
+  endCustomerId      String      @db.Uuid
+  tenantId           String      @db.Uuid
+  whopPaymentId      String      @unique
   tipo               String
-  montoTotal         Decimal  @db.Decimal(10, 4)
-  minutosComprados   Decimal? @db.Decimal(10, 2)
-  precioPorMinuto    Decimal  @db.Decimal(10, 4)
-  comisionPlataforma Decimal  @db.Decimal(10, 4)
-  comisionDueno      Decimal  @db.Decimal(10, 4)
-  comisionAfiliado   Decimal? @db.Decimal(10, 4)
-  affiliateId        String?  @db.Uuid
-  reembolso          Decimal? @db.Decimal(10, 4)
-  status             String   @default("activo")
-  createdAt          DateTime @default(now())
-
-  endCustomer EndCustomer @relation(fields: [endCustomerId], references: [id])
+  montoTotal         Decimal     @db.Decimal(10, 4)
+  minutosComprados   Decimal?    @db.Decimal(10, 2)
+  precioPorMinuto    Decimal     @db.Decimal(10, 4)
+  comisionPlataforma Decimal     @db.Decimal(10, 4)
+  comisionDueno      Decimal     @db.Decimal(10, 4)
+  comisionAfiliado   Decimal?    @db.Decimal(10, 4)
+  affiliateId        String?     @db.Uuid
+  reembolso          Decimal?    @db.Decimal(10, 4)
+  status             String      @default("activo")
+  createdAt          DateTime    @default(now())
+  endCustomer        EndCustomer @relation(fields: [endCustomerId], references: [id])
 
   @@map("end_customer_payments")
 }
 
 model RefundRequest {
-  id              String   @id @default(uuid()) @db.Uuid
-  endCustomerId   String   @db.Uuid
-  tenantId        String   @db.Uuid
+  id              String      @id @default(uuid()) @db.Uuid
+  endCustomerId   String      @db.Uuid
+  tenantId        String      @db.Uuid
   whopPaymentId   String
-  montoSolicitado Decimal  @db.Decimal(10, 4)
-  status          String   @default("pendiente") // pendiente | completado | rechazado
-  createdAt       DateTime @default(now())
-
-  endCustomer EndCustomer @relation(fields: [endCustomerId], references: [id])
+  montoSolicitado Decimal     @db.Decimal(10, 4)
+  status          String      @default("pendiente")
+  createdAt       DateTime    @default(now())
+  endCustomer     EndCustomer @relation(fields: [endCustomerId], references: [id])
 
   @@map("refund_requests")
 }

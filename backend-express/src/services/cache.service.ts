@@ -14,11 +14,13 @@ export async function getRedis() {
   if (!process.env.REDIS_URL) return null;
   try {
     const Redis = (await import("ioredis")).default;
+    const isTls = process.env.REDIS_URL.startsWith("rediss://");
     const client = new Redis(process.env.REDIS_URL, {
-      connectTimeout: 2000,
+      connectTimeout: 3000,
       maxRetriesPerRequest: 1,
       retryStrategy: () => null,
       enableOfflineQueue: false,
+      ...(isTls ? { tls: { rejectUnauthorized: false } } : {}),
     });
     client.on("error", () => {
       // Evitar eventos error sin handler

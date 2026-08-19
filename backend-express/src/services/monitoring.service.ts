@@ -8,6 +8,18 @@ import { logger } from "../utils/logger";
 import { enviarEmail, emailTemplates } from "./email.service";
 import { emitirSSEAdmin } from "../sse/events.emitter";
 import { actualizarRateLimitGemini, obtenerRateLimitGemini, actualizarRateLimitTelnyx, obtenerRateLimitTelnyx, obtenerConcurrenciaTelnyx } from "./ratelimit.service";
+import { performance } from "perf_hooks";
+
+// Monitor de latencia del Event Loop (detecta si el CPU se bloquea)
+let lastLoopCheck = performance.now();
+setInterval(() => {
+  const now = performance.now();
+  const lag = now - lastLoopCheck - 1000;
+  if (lag > 50) {
+    logger.warn({ lagMs: Math.round(lag) }, "⚠️ ALERTA: Event loop bloqueado (CPU saturado)");
+  }
+  lastLoopCheck = now;
+}, 1000).unref();
 
 interface Metrica {
   ts: number;
@@ -32,6 +44,9 @@ export function incrementarLlamadasActivas(): void {
 
 export function decrementarLlamadasActivas(): void {
   llamadasActivas = Math.max(0, llamadasActivas - 1);
+  if (llamadasActivas === 0) {
+    latenciasRecientes.length = 0;
+  }
 }
 
 export function registrarLatencia(ms: number): void {

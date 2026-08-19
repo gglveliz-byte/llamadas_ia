@@ -7,7 +7,8 @@
  * que WebRTC VAD espera (10/20/30ms @ 8kHz).
  */
 import * as fs from "fs";
-import * as path from "path";
+import path from "path";
+import { performance } from "perf_hooks";
 import * as ort from "onnxruntime-node";
 import vadFactory, { type WebrtcVadModule } from "@ennuicastr/webrtcvad.js";
 import {
@@ -99,6 +100,7 @@ export class VADAccumulator {
   private chunkSize = 512;
   private vad: RealTimeVAD;
   private processingPromise = Promise.resolve();
+  private liberado = false;
 
   constructor(vad: RealTimeVAD) {
     this.vad = vad;
@@ -116,6 +118,8 @@ export class VADAccumulator {
   }
   
   process(newData: Float32Array) {
+    if (this.liberado) return;
+    
     const combined = new Float32Array(this.buffer.length + newData.length);
     combined.set(this.buffer, 0);
     combined.set(newData, this.buffer.length);
@@ -130,8 +134,14 @@ export class VADAccumulator {
 
     this.processingPromise = this.processingPromise.then(async () => {
       for (const chunk of chunks) {
+        if (this.liberado) break;
         try {
+          const t0 = performance.now();
           await this.vad.processAudio(chunk);
+          const t1 = performance.now();
+          if (t1 - t0 > 25) {
+            logger.warn({ timeMs: Math.round(t1 - t0) }, "⚠️ Cuello de botella en VAD: Procesamiento lento");
+          }
         } catch (e) {
           logger.warn({ error: (e as Error).message }, "VAD chunk error");
         }
@@ -140,6 +150,7 @@ export class VADAccumulator {
   }
 
   liberar() {
+    this.liberado = true;
     // Liberar referencias y detener VAD si tiene stop()
     try {
       if ((this.vad as any).stop) {

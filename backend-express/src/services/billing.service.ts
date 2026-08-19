@@ -14,12 +14,14 @@ import { calcularComisiones, aplicarComisiones } from "./commission.service";
  * Verifica si el cliente final tiene saldo suficiente (prepago) o depósito (retención).
  */
 export async function verificarSaldo(tenantId: string, endCustomerPhone: string): Promise<{ saldoOk: boolean; maxSegundos: number }> {
+  // Limpieza defensiva: remover sufijo SIP URI si llegara sin limpiar
+  const telefonoLimpio = endCustomerPhone.split("@")[0];
   const endCustomer = await db.endCustomer.findUnique({
-    where: { tenantId_telefono: { tenantId, telefono: endCustomerPhone } }
+    where: { tenantId_telefono: { tenantId, telefono: telefonoLimpio } }
   });
 
   if (!endCustomer) {
-    logger.warn({ tenantId, endCustomerPhone }, "EndCustomer no encontrado al verificar saldo");
+    logger.warn({ tenantId, endCustomerPhone: telefonoLimpio }, "EndCustomer no encontrado al verificar saldo");
     return { saldoOk: false, maxSegundos: 0 };
   }
 
@@ -57,9 +59,11 @@ export async function debitarLlamada(
   callSid: string,
   duracionSegundos: number
 ): Promise<{ monto: number; saldoNuevo: number }> {
+  // Limpieza defensiva: remover sufijo SIP URI si llegara sin limpiar
+  const telefonoLimpio = endCustomerPhone.split("@")[0];
   
   const endCustomer = await db.endCustomer.findUnique({
-    where: { tenantId_telefono: { tenantId, telefono: endCustomerPhone } }
+    where: { tenantId_telefono: { tenantId, telefono: telefonoLimpio } }
   });
 
   if (!endCustomer) {

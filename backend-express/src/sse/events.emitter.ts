@@ -24,7 +24,7 @@ export function registrarClienteSSE(userId: string, res: Response): ClienteSSE {
   }
   clientes.get(userId)!.add(cliente);
 
-  logger.info({ userId, total: clientes.get(userId)?.size }, "Cliente SSE conectado");
+  logger.debug({ userId, total: clientes.get(userId)?.size }, "Cliente SSE conectado");
   return cliente;
 }
 
@@ -34,7 +34,7 @@ export function removerClienteSSE(cliente: ClienteSSE): void {
     set.delete(cliente);
     if (set.size === 0) clientes.delete(cliente.userId);
   }
-  logger.info({ userId: cliente.userId }, "Cliente SSE desconectado");
+  logger.debug({ userId: cliente.userId }, "Cliente SSE desconectado");
 }
 
 export function emitirSSE(

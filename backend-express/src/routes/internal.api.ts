@@ -532,7 +532,7 @@ internalRouter.post("/telnyx/outbound-call", async (req, res) => {
 
   try {
     const webhookUrl = `${process.env.DOMINIO_EXPRESS}/webhooks/telnyx/voice`;
-    const clientStateObj = JSON.stringify({ userId, dir: "outbound" });
+    const clientStateObj = JSON.stringify({ userId, dir: "outbound", customerPhone: to });
     const { callControlId } = await createOutboundCall({
       from,
       to,

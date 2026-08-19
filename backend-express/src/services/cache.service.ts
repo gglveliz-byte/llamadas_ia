@@ -34,12 +34,18 @@ export async function getRedis() {
         }
       };
       client.once("ready", () => fin(true));
-      client.once("error", () => fin(false));
-      setTimeout(() => fin(false), 200);
+      client.once("error", (err) => {
+        logger.warn({ err }, "Error inicial conectando a Redis");
+        fin(false);
+      });
+      setTimeout(() => {
+        logger.warn("Timeout de 3000ms esperando a Redis");
+        fin(false);
+      }, 3000);
     });
     if (conectado) {
       redisClient = client;
-      logger.info("Redis conectado");
+      logger.info("Redis conectado exitosamente");
       return redisClient;
     }
     client.disconnect();

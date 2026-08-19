@@ -850,7 +850,7 @@ export async function procesarMensajesGemini(
       // Al quedar lista la sesión, disparar el primer turno para que la IA
       // salude sin esperar a que el cliente hable.
       if (msg.setupComplete && mensajeInicial && !saludoEnviado) {
-        logger.info(`[GEMINI API] 🟢 setupComplete recibido de Google. Esperando 1.5s para enviar instrucción inicial (Telnyx audio channel setup)...`);
+        logger.info(`[GEMINI API] 🟢 setupComplete recibido de Google. Esperando 0.5s para enviar instrucción inicial (Telnyx audio channel setup)...`);
         saludoEnviado = true;
         setTimeout(() => {
           if (session.readyState === WS.OPEN) {
@@ -864,7 +864,7 @@ export async function procesarMensajesGemini(
             );
             logger.info({ callSid }, `[GEMINI API] 🗣️ Instrucción inicial enviada a la IA: "${mensajeInicial.substring(0, 80)}..."`);
           }
-        }, 1500);
+        }, 500);
       }
 
       if (msg.serverContent && msg.serverContent.modelTurn && msg.serverContent.modelTurn.parts) {

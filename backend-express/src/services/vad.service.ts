@@ -101,6 +101,7 @@ export class VADAccumulator {
   private vad: RealTimeVAD;
   private processingPromise = Promise.resolve();
   private liberado = false;
+  private vadSlowCount = 0;
 
   constructor(vad: RealTimeVAD) {
     this.vad = vad;
@@ -139,8 +140,14 @@ export class VADAccumulator {
           const t0 = performance.now();
           await this.vad.processAudio(chunk);
           const t1 = performance.now();
-          if (t1 - t0 > 25) {
-            logger.warn({ timeMs: Math.round(t1 - t0) }, "⚠️ Cuello de botella en VAD: Procesamiento lento");
+          // Umbral de 80ms: en servidores de 1 vCPU, ONNX inference de 25-70ms
+          // es normal. Solo alertar si realmente es lento y rate-limit los logs
+          // para no saturar I/O (que a su vez empeora el CPU).
+          if (t1 - t0 > 80) {
+            this.vadSlowCount++;
+            if (this.vadSlowCount <= 3 || this.vadSlowCount % 50 === 0) {
+              logger.warn({ timeMs: Math.round(t1 - t0), count: this.vadSlowCount }, "⚠️ Cuello de botella en VAD: Procesamiento lento");
+            }
           }
         } catch (e) {
           logger.warn({ error: (e as Error).message }, "VAD chunk error");

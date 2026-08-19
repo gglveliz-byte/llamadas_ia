@@ -15,7 +15,9 @@ let lastLoopCheck = performance.now();
 setInterval(() => {
   const now = performance.now();
   const lag = now - lastLoopCheck - 1000;
-  if (lag > 50) {
+  // Umbral de 200ms: en servidores de 1 vCPU con ONNX inference,
+  // lags de 50-100ms son normales y no ameritan alerta.
+  if (lag > 200) {
     logger.warn({ lagMs: Math.round(lag) }, "⚠️ ALERTA: Event loop bloqueado (CPU saturado)");
   }
   lastLoopCheck = now;
@@ -38,6 +40,10 @@ let llamadasActivas = 0;
 let intervalMonitor: NodeJS.Timeout | null = null;
 let ultimoUmbralAlerta = 0; // Throttle: no más de 1 alerta cada 5 min
 
+// Variables para medir CPU del proceso (process.cpuUsage)
+let lastCpuUsage = process.cpuUsage();
+let lastCpuCheckTime = process.hrtime.bigint();
+
 export function incrementarLlamadasActivas(): void {
   llamadasActivas++;
 }
@@ -55,7 +61,19 @@ export function registrarLatencia(ms: number): void {
 }
 
 export function obtenerMetricasActuales(): Metrica {
-  const cpu = (os.loadavg()[0] / os.cpus().length) * 100;
+  const currentCpuUsage = process.cpuUsage();
+  const currentCpuCheckTime = process.hrtime.bigint();
+  
+  const userDiff = currentCpuUsage.user - lastCpuUsage.user;
+  const systemDiff = currentCpuUsage.system - lastCpuUsage.system;
+  const timeDiffUs = Number(currentCpuCheckTime - lastCpuCheckTime) / 1000;
+
+  // Porcentaje de CPU usado por este proceso de Node en el intervalo (puede usar múltiples cores)
+  const cpuProcess = timeDiffUs > 0 ? ((userDiff + systemDiff) / timeDiffUs) * 100 : 0;
+  
+  lastCpuUsage = currentCpuUsage;
+  lastCpuCheckTime = currentCpuCheckTime;
+
   const ram = (1 - os.freemem() / os.totalmem()) * 100;
   const heap = process.memoryUsage().heapUsed / 1024 / 1024;
   const latencia =
@@ -65,7 +83,7 @@ export function obtenerMetricasActuales(): Metrica {
 
   return {
     ts: Date.now(),
-    cpu: Math.min(100, Math.max(0, cpu)),
+    cpu: Math.min(100, Math.max(0, cpuProcess)),
     ram,
     llamadas: llamadasActivas,
     latencia,

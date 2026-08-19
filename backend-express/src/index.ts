@@ -24,7 +24,6 @@ import { affiliateRouter } from "./routes/affiliate.api";
 import { refundRouter } from "./routes/refund.api";
 import { registrarTelnyxStreamHandler } from "./websockets/telnyxStream.handler";
 import { registrarSimuladorHandler } from "./websockets/simulador.handler";
-import { parse } from "url";
 import { configurarSSEHeaders, registrarClienteSSE, removerClienteSSE, emitirSSE } from "./sse/events.emitter";
 import { iniciarMonitoreo } from "./services/monitoring.service";
 import { procesarRentasMensuales } from "./services/rentas.service";
@@ -202,7 +201,9 @@ const wssSim = new WebSocketServer({ noServer: true });
 registrarSimuladorHandler(wssSim);
 
 server.on("upgrade", (request, socket, head) => {
-  const { pathname } = parse(request.url || "", true);
+  const baseURL = "http://" + (request.headers.host || "localhost");
+  const parsedUrl = new URL(request.url || "", baseURL);
+  const pathname = parsedUrl.pathname;
 
   if (pathname === "/stream/telnyx") {
     wssTelnyx.handleUpgrade(request, socket, head, (ws) => {

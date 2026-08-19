@@ -17,6 +17,37 @@ import {
 import { logger } from "../utils/logger";
 import { emitirSSE } from "../sse/events.emitter";
 
+/**
+ * Limpia un número de teléfono recibido de Telnyx.
+ * Telnyx puede enviar el "from" en formato SIP URI: +1593998008022@4.55.74.30:5060
+ * Esta función:
+ * 1. Remueve el sufijo @IP:port
+ * 2. Normaliza prefijos duplicados (ej. +1593... → +593... para Ecuador)
+ */
+function limpiarNumeroSIP(raw: string | null | undefined): string {
+  if (!raw) return "";
+  // 1. Remover sufijo SIP (@host:port)
+  let limpio = raw.split("@")[0];
+  // 2. Normalizar: Telnyx a veces antepone "1" al código de país.
+  //    Ecuador (+593), Colombia (+57), Perú (+51), etc. no empiezan con +1.
+  //    Si detectamos +1 seguido de un código de país conocido, quitamos el 1.
+  if (/^\+1(5[0-9]{2})/.test(limpio)) {
+    // +1593... → +593... (country codes 5XX que no son NANPA)
+    const sinUno = "+" + limpio.slice(2);
+    // Validar que no sea un número NANPA real (+1-5XX son area codes válidos de US/CA)
+    // Los códigos de país latinoamericanos 5XX: 502-509 (Centroamérica), 51 (Perú),
+    // 52 (México), 53 (Cuba), 54 (Argentina), 55 (Brasil), 56 (Chile), 57 (Colombia),
+    // 58 (Venezuela), 591-598 (Sudamérica), 599 (Curazao)
+    // NANPA +1-5XX area codes tienen solo 10 dígitos después del +1
+    // Números internacionales suelen ser más largos
+    if (limpio.length > 12) {
+      // Más de 12 chars (+1 + 10 dígitos) → probablemente internacional con 1 extra
+      limpio = sinUno;
+    }
+  }
+  return limpio;
+}
+
 const telnyxVoiceSchema = z.object({
   event_type: z.string(),
   payload: z.object({
@@ -83,7 +114,9 @@ telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
       }
 
       if (event_type === "call.initiated" && direction === "incoming") {
-        logger.info(`[WEBHOOK TELNYX] 📞 Llamada entrante detectada desde ${from} hacia ${to}. Verificando configuración...`);
+        // Limpiar número del llamante (puede venir como SIP URI con @IP:port)
+        const fromLimpio = limpiarNumeroSIP(from);
+        logger.info(`[WEBHOOK TELNYX] 📞 Llamada entrante detectada desde ${from} (limpio: ${fromLimpio}) hacia ${to}. Verificando configuración...`);
         // Buscar usuario por número destino (to)
         const phone = await db.phoneNumber.findFirst({
           where: { phoneNumber: to, isActive: true },
@@ -92,7 +125,7 @@ telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
 
         if (!phone?.user) {
           logger.warn({ to }, "[WEBHOOK TELNYX] ❌ Rechazo: Número no asignado a ningún usuario activo.");
-          await rejectCall(call_control_id, "unallocated_number").catch(() => {});
+          await rejectCall(call_control_id, "CALL_REJECTED").catch(() => {});
           return;
         }
 
@@ -105,23 +138,23 @@ telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
         });
         if (mantenimiento?.valor) {
           logger.info("[WEBHOOK TELNYX] Mantenimiento activo. Rechazando llamada.");
-          await rejectCall(call_control_id, "user_busy").catch(() => {});
+          await rejectCall(call_control_id, "USER_BUSY").catch(() => {});
           return;
         }
 
-        // 2. Verificar saldo
-        const endCustomerPhone = direction === "incoming" ? from : to; // Si es incoming, from es el cliente. Si es outgoing, to es el cliente.
-        const { saldoOk, maxSegundos } = await verificarSaldo(userId, endCustomerPhone || "");
+        // 2. Verificar saldo (usar número limpio para buscar EndCustomer)
+        const endCustomerPhone = fromLimpio;
+        const { saldoOk, maxSegundos } = await verificarSaldo(userId, endCustomerPhone);
         if (!saldoOk) {
           logger.warn({ userId, endCustomerPhone }, "[WEBHOOK TELNYX] ❌ Saldo insuficiente o cliente no registrado. Rechazando llamada para evitar cobros.");
-          await rejectCall(call_control_id, "user_busy").catch(() => {});
+          await rejectCall(call_control_id, "USER_BUSY").catch(() => {});
           return;
         }
 
         // 3. Verificar suspención
         if (phone.user.isSuspended) {
           logger.warn({ userId }, "[WEBHOOK TELNYX] ❌ Cuenta suspendida. Rechazando llamada.");
-          await rejectCall(call_control_id, "user_busy").catch(() => {});
+          await rejectCall(call_control_id, "USER_BUSY").catch(() => {});
           return;
         }
 
@@ -129,14 +162,14 @@ telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
         const settings = await db.businessSettings.findUnique({ where: { userId } });
         if (!settings) {
           logger.warn({ userId }, "[WEBHOOK TELNYX] ❌ Configuración no encontrada. Rechazando llamada.");
-          await rejectCall(call_control_id, "user_busy").catch(() => {});
+          await rejectCall(call_control_id, "USER_BUSY").catch(() => {});
           return;
         }
 
         const dentroDeHorario = verificarHorario(settings);
         if (!dentroDeHorario && !settings.modo247) {
           logger.info({ call_control_id, userId }, "[WEBHOOK TELNYX] 🌙 Fuera de horario y modo 24/7 apagado. Rechazando llamada para evitar cobros.");
-          await rejectCall(call_control_id, "user_busy").catch(() => {});
+          await rejectCall(call_control_id, "USER_BUSY").catch(() => {});
           return;
         }
 
@@ -147,16 +180,16 @@ telnyxRouter.post("/voice", validarFirmaTelnyx, async (req, res) => {
         const b64State = Buffer.from(clientStateObj).toString("base64");
         
         // Solo contestar aquí. El streaming se iniciará en el evento call.answered para evitar race conditions en Telnyx
-        pendingInboundStreams.set(call_control_id, { userId, b64State, from: from || "" });
+        pendingInboundStreams.set(call_control_id, { userId, b64State, from: fromLimpio });
         await answerCall(call_control_id, b64State, maxSegundos);
         logger.info({ call_control_id, userId }, "[WEBHOOK TELNYX] Llamada contestada. Esperando evento call.answered para iniciar stream...");
 
-        // 6. Registrar métrica
+        // 6. Registrar métrica (guardar el número limpio)
         await db.callMetric.create({
           data: {
             callSid: call_control_id,
             userId,
-            callerNumber: from ?? null,
+            callerNumber: fromLimpio || null,
             toNumber: to ?? null,
             inicio: new Date(),
           },

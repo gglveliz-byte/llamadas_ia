@@ -1525,6 +1525,15 @@ function SearchNumbersModal({
                 {total !== null ? ` de ${total}` : ""} números en {PAISES_TELNYX[country] ?? country} ·
                 precios en {results[0]?.cost_information?.currency || "USD"}
               </div>
+              {results.some(n => n.phone_number.startsWith('+18')) && (
+                <div className="rounded-md bg-amber-500/10 border border-amber-500/30 p-2 text-xs text-amber-700 dark:text-amber-400 flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <div>
+                    <strong className="block mb-0.5">Aviso sobre números Toll-Free (+1-8XX)</strong>
+                    Estos números de EE.UU./Canadá generalmente <strong>no pueden recibir llamadas internacionales</strong> desde Latinoamérica u otras regiones fuera de Norteamérica. Si tus clientes están fuera de EE.UU./Canadá, te recomendamos elegir un código de área local (DID) de EE.UU. u otro país.
+                  </div>
+                </div>
+              )}
               <ScrollArea className="h-[50vh] rounded-lg border p-3">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {results.map((n) => {

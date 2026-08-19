@@ -197,6 +197,7 @@ export async function searchAvailableNumbers(
   const params = new URLSearchParams({
     "filter[country_code]": countryCode,
     "filter[features][]": "voice",
+    "filter[number_type]": "local", // Solo buscar números locales (DID) para evitar Toll-Free
     "page[size]": String(limit),
     "page[number]": String(page),
   });
@@ -265,14 +266,21 @@ export async function purchasePhoneNumber(
     }
   );
 
-  // La respuesta es un number_order; extraer el número comprado si viene incluido
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const bought = (data.data as any)?.phone_numbers?.[0];
-  const comprado: TelnyxPhoneNumber | null =
-    bought?.id ? (bought as TelnyxPhoneNumber) : await getOwnedNumberByPhone(phoneNumber);
+  // La respuesta de Telnyx en /number_orders incluye un array de phone_numbers,
+  // PERO el 'id' que viene ahí es del tipo 'number_order_phone_number', NO el ID real del número.
+  // Si usamos ese ID para asignar la conexión (PATCH /phone_numbers/ID), Telnyx devuelve 404.
+  // Por lo tanto, debemos consultar el inventario de la cuenta para obtener el ID real (record_type: 'phone_number').
+  // Dado que la provisión es asíncrona y puede tomar unos milisegundos, intentaremos un par de veces.
+  let comprado: TelnyxPhoneNumber | null = null;
+  for (let i = 0; i < 4; i++) {
+    comprado = await getOwnedNumberByPhone(phoneNumber);
+    if (comprado) break;
+    // Esperar 1.5s antes del próximo intento
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
 
   if (!comprado) {
-    throw new Error(`Número ${phoneNumber} ordenado pero no se pudo obtener su registro`);
+    throw new Error(`Número ${phoneNumber} ordenado pero la provisión está tomando más tiempo del esperado. Actualiza en unos minutos.`);
   }
 
   logger.info({ phoneNumber, childAccountId }, "Número comprado en Telnyx");
@@ -569,7 +577,7 @@ export async function hangupCall(callControlId: string): Promise<TelnyxCallContr
  * Call Control API - Rechaza llamada entrante sin contestarla.
  * POST /v2/calls/{call_control_id}/actions/reject
  */
-export async function rejectCall(callControlId: string, cause: "call_rejected" | "user_busy" | "unallocated_number" = "call_rejected"): Promise<TelnyxCallControl | null> {
+export async function rejectCall(callControlId: string, cause: "CALL_REJECTED" | "USER_BUSY" = "CALL_REJECTED"): Promise<TelnyxCallControl | null> {
   if (callControlId.startsWith("test_")) {
     logger.debug({ callControlId }, "Simulador: rejectCall ignorado para llamada de prueba");
     return null;
@@ -622,7 +630,7 @@ export async function startRecording(callControlId: string, format = "wav"): Pro
     `/calls/${callControlId}/actions/record_start`,
     {
       method: "POST",
-      body: JSON.stringify({ format }),
+      body: JSON.stringify({ format, channels: "single" }),
     }
   );
   return data.data;

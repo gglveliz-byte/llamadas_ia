@@ -14,8 +14,15 @@ export async function getRedis() {
   if (!process.env.REDIS_URL) return null;
   try {
     const Redis = (await import("ioredis")).default;
-    const isTls = process.env.REDIS_URL.startsWith("rediss://");
-    const client = new Redis(process.env.REDIS_URL, {
+    let url = process.env.REDIS_URL;
+    
+    // Upstash siempre requiere TLS. Si el usuario pegó redis:// por error, lo auto-corregimos.
+    if (url.includes("upstash.io") && url.startsWith("redis://")) {
+      url = url.replace("redis://", "rediss://");
+    }
+
+    const isTls = url.startsWith("rediss://");
+    const client = new Redis(url, {
       connectTimeout: 3000,
       maxRetriesPerRequest: 1,
       retryStrategy: () => null,

@@ -20,7 +20,7 @@ export function AfiliadoDashboardSection() {
       if (!usuario) return;
       setLoading(true);
       try {
-        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+        const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
         const res = await fetch(`${backendUrl}/api/affiliate/dashboard`, {
           headers: {
             "x-affiliate-id": usuario.id,

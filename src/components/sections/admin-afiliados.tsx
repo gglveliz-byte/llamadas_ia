@@ -35,7 +35,7 @@ export function AdminAfiliadosSection() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
       const res = await fetch(`${backendUrl}/api/affiliate/admin/list`, {
         headers: {
           "x-user-role": "admin",
@@ -70,7 +70,7 @@ export function AdminAfiliadosSection() {
     }
 
     try {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
       const res = await fetch(`${backendUrl}/api/affiliate/admin/create`, {
         method: "POST",
         headers: {
@@ -100,7 +100,7 @@ export function AdminAfiliadosSection() {
   const handleSuspender = async (id: string, currentStatus: boolean) => {
     if (!confirm(`¿Estás seguro de que deseas ${currentStatus ? 'suspender' : 'activar'} a este afiliado?`)) return;
     try {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
       const res = await fetch(`${backendUrl}/api/affiliate/admin/${id}`, {
         method: "PATCH",
         headers: {
@@ -123,7 +123,7 @@ export function AdminAfiliadosSection() {
   const handleEliminar = async (id: string) => {
     if (!confirm("¿Estás seguro de eliminar este afiliado de forma permanente?")) return;
     try {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
       const res = await fetch(`${backendUrl}/api/affiliate/admin/${id}`, {
         method: "DELETE",
         headers: {
@@ -153,7 +153,7 @@ export function AdminAfiliadosSection() {
     setEditing(true);
 
     try {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
       const res = await fetch(`${backendUrl}/api/affiliate/admin/${afiliadoAEditar.id}`, {
         method: "PATCH",
         headers: {

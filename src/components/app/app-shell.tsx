@@ -18,6 +18,7 @@ import { AdminClientesSection } from "@/components/sections/admin-clientes";
 import { AdminMetricasSection } from "@/components/sections/admin-metricas";
 import { AdminFlujoSection } from "@/components/sections/admin-flujo";
 import { AdminConfigSection } from "@/components/sections/admin-config";
+import { AdminCostosSection } from "@/components/sections/admin-costos";
 import { AdminRankingSection } from "@/components/sections/admin-ranking";
 import { AdminAfiliadosSection } from "@/components/sections/admin-afiliados";
 import {
@@ -183,6 +184,8 @@ export function AppShell() {
         return usuario.role === "admin" ? <AdminRankingSection /> : <NoAccess />;
       case "admin-config":
         return usuario.role === "admin" ? <AdminConfigSection /> : <NoAccess />;
+      case "admin-costos":
+        return usuario.role === "admin" ? <AdminCostosSection /> : <NoAccess />;
       case "admin-afiliados":
         return usuario.role === "admin" ? <AdminAfiliadosSection /> : <NoAccess />;
       case "afiliado-dashboard":

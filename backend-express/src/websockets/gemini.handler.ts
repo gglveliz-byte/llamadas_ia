@@ -110,7 +110,6 @@ export async function crearSesionGemini(
           generationConfig: {
             responseModalities: ["AUDIO"],
             speechConfig: {
-              languageCode: region.languageCode,
               voiceConfig: {
                 prebuiltVoiceConfig: {
                   voiceName: aiVoice

@@ -88,6 +88,13 @@ export class ApiClient {
     });
   }
 
+  static put<T>(path: string, body?: unknown): Promise<T> {
+    return this.request<T>(path, {
+      method: "PUT",
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  }
+
   static delete<T>(path: string): Promise<T> {
     return this.request<T>(path, { method: "DELETE" });
   }

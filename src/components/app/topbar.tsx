@@ -30,6 +30,7 @@ const TITULOS: Record<Seccion, string> = {
   "admin-flujo": "Admin · Flujo de Caja",
   "admin-ranking": "Admin · Ranking",
   "admin-config": "Admin · Configuración Global",
+  "admin-costos": "Admin · Costos Operativos",
   "admin-afiliados": "Admin · Afiliados",
   "afiliado-dashboard": "Panel de Afiliado",
 };

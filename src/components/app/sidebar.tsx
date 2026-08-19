@@ -20,6 +20,7 @@ import {
   ChevronDown,
   Phone,
   PhoneOutgoing,
+  DollarSign,
 } from "lucide-react";
 import { useAppStore, type Seccion } from "@/lib/store";
 import { Button } from "@/components/ui/button";
@@ -55,6 +56,7 @@ const NAV_ITEMS: SidebarItem[] = [
   { id: "admin-flujo", label: "Flujo de Caja", icon: TrendingUp, rol: "admin" },
   { id: "admin-ranking", label: "Ranking", icon: Trophy, rol: "admin" },
   { id: "admin-afiliados", label: "Afiliados", icon: Users, rol: "admin" },
+  { id: "admin-costos", label: "Costos Operativos", icon: DollarSign, rol: "admin" },
   { id: "admin-config", label: "Configuración Admin", icon: Cog, rol: "admin" },
 ];
 

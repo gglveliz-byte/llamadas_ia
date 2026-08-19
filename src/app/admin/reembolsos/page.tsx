@@ -28,7 +28,7 @@ export default function AdminRefundsPage() {
 
   const fetchRefunds = async () => {
     try {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
       const token = localStorage.getItem("adminToken");
       const res = await fetch(`${backendUrl}/admin/refunds`, {
         headers: { "Authorization": `Bearer ${token}` }
@@ -51,7 +51,7 @@ export default function AdminRefundsPage() {
     if (!confirm("¿Ya emitiste el reembolso manualmente en el dashboard de Whop? Esta acción descontará el saldo del cliente.")) return;
     
     try {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
       const token = localStorage.getItem("adminToken");
       const res = await fetch(`${backendUrl}/admin/refunds/${id}/complete`, {
         method: "POST",
@@ -73,7 +73,7 @@ export default function AdminRefundsPage() {
   const handleReject = async (id: string) => {
     if (!confirm("¿Rechazar esta solicitud?")) return;
     try {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
       const token = localStorage.getItem("adminToken");
       await fetch(`${backendUrl}/admin/refunds/${id}/reject`, {
         method: "POST",

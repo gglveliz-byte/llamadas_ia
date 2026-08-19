@@ -326,3 +326,15 @@ model RefundRequest {
 
   @@map("refund_requests")
 }
+
+model TelnyxRate {
+  id             Int      @id @default(autoincrement())
+  countryCode    String   @unique
+  countryName    String
+  inboundPerMin  Decimal  @db.Decimal(10, 6)
+  outboundPerMin Decimal  @db.Decimal(10, 6)
+  callControlFee Decimal  @default(0.002) @db.Decimal(10, 6)
+  updatedAt      DateTime @updatedAt
+
+  @@map("telnyx_rates")
+}

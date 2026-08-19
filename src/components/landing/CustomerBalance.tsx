@@ -25,7 +25,7 @@ export function CustomerBalance({ tenantId, countryData }: { tenantId: string, c
         ? `${countryData.code}${telefono}` 
         : telefono;
 
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
       const res = await fetch(`${backendUrl}/api/public/customer/balance`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -56,7 +56,7 @@ export function CustomerBalance({ tenantId, countryData }: { tenantId: string, c
         ? `${countryData.code}${telefono}` 
         : telefono;
 
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
       const res = await fetch(`${backendUrl}/api/public/customer/refund`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

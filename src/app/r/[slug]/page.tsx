@@ -52,7 +52,7 @@ export default function PublicLandingPage() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+        const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
         const res = await fetch(`${backendUrl}/api/public/business/${slug}`);
         if (res.ok) {
           const json = await res.json();
@@ -103,7 +103,7 @@ export default function PublicLandingPage() {
     
     setProcesando(true);
     try {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
       
       const regRes = await fetch(`${backendUrl}/api/public/register`, {
         method: "POST",

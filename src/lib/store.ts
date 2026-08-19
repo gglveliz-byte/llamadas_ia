@@ -16,6 +16,7 @@ export type Seccion =
   | "admin-flujo"
   | "admin-ranking"
   | "admin-config"
+  | "admin-costos"
   | "admin-afiliados"
   | "afiliado-dashboard";
 

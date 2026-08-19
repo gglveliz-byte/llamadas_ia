@@ -327,7 +327,6 @@ async function iniciarSesionGemini(sesion: SesionSimulador, callSid: string, cer
           generationConfig: {
             responseModalities: ["AUDIO"],
             speechConfig: {
-              languageCode: region.languageCode,
               voiceConfig: {
                 prebuiltVoiceConfig: {
                   voiceName: aiVoice

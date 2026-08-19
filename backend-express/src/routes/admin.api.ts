@@ -373,3 +373,200 @@ adminRouter.get("/audit/stats", async (req, res) => {
     res.status(500).json({ error: "Error obteniendo stats" });
   }
 });
+
+// ─── COSTOS OPERATIVOS TELNYX ───────────────────────────────────────────────
+
+const TELNYX_API_BASE = "https://api.telnyx.com/v2";
+const TELNYX_API_KEY = process.env.TELNYX_API_KEY!;
+
+/** Caché simple en memoria: precios de números por país (TTL 1h). */
+const numberPricingCache = new Map<string, { data: any; ts: number }>();
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hora
+
+/**
+ * GET /admin/telnyx-costs/numbers?countryCode=US
+ * Consulta precios REALES de números en Telnyx para un país.
+ */
+adminRouter.get("/telnyx-costs/numbers", async (req, res) => {
+  const countryCode = String(req.query.countryCode || "").toUpperCase();
+  if (!countryCode || countryCode.length > 5) {
+    return res.status(400).json({ error: "countryCode requerido" });
+  }
+
+  try {
+    // Revisar caché
+    const cached = numberPricingCache.get(countryCode);
+    if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+      return res.json(cached.data);
+    }
+
+    // Consultar Telnyx
+    const params = new URLSearchParams({
+      "filter[country_code]": countryCode,
+      "filter[features][]": "voice",
+      "page[size]": "5",
+    });
+
+    const telRes = await fetch(`${TELNYX_API_BASE}/available_phone_numbers?${params.toString()}`, {
+      headers: {
+        Authorization: `Bearer ${TELNYX_API_KEY}`,
+        Accept: "application/json",
+      },
+    });
+
+    if (!telRes.ok) {
+      const errText = await telRes.text();
+      logger.error({ countryCode, status: telRes.status, error: errText }, "Error consultando precios Telnyx");
+      return res.status(502).json({ error: `Error Telnyx: ${telRes.status}` });
+    }
+
+    const telData: any = await telRes.json();
+    const numbers = (telData.data ?? []).map((n: any) => ({
+      phoneNumber: n.phone_number,
+      region: n.region_information?.[0]?.region_name ?? null,
+      upfrontCost: n.cost_information?.upfront_cost ?? null,
+      monthlyCost: n.cost_information?.monthly_cost ?? null,
+      currency: n.cost_information?.currency ?? "USD",
+    }));
+
+    // Obtener margen configurado
+    const cfgMargen = await db.adminConfig.findUnique({ where: { clave: "margen_numero_pct" } });
+    const margenPct = parseFloat(cfgMargen?.valor ?? "50");
+
+    const result = { countryCode, numbers, margenPct, totalAvailable: telData.meta?.total_results ?? null };
+
+    // Cachear
+    numberPricingCache.set(countryCode, { data: result, ts: Date.now() });
+
+    res.json(result);
+  } catch (e) {
+    logger.error({ error: (e as Error).message, countryCode }, "Error en telnyx-costs/numbers");
+    res.status(500).json({ error: "Error consultando precios de números" });
+  }
+});
+
+/**
+ * GET /admin/telnyx-costs/rates
+ * Devuelve todas las tarifas por minuto configuradas.
+ */
+adminRouter.get("/telnyx-costs/rates", async (_req, res) => {
+  try {
+    const rates = await db.telnyxRate.findMany({
+      orderBy: { countryName: "asc" },
+    });
+    res.json({ rates });
+  } catch (e) {
+    logger.error({ error: (e as Error).message }, "Error listando telnyx rates");
+    res.status(500).json({ error: "Error listando tarifas" });
+  }
+});
+
+/**
+ * PUT /admin/telnyx-costs/rates/:countryCode
+ * Crea o actualiza tarifa por minuto para un país.
+ */
+const rateSchema = z.object({
+  countryName: z.string().min(1).max(100),
+  inboundPerMin: z.coerce.number().min(0).max(100),
+  outboundPerMin: z.coerce.number().min(0).max(100),
+  callControlFee: z.coerce.number().min(0).max(10).optional(),
+});
+
+adminRouter.put("/telnyx-costs/rates/:countryCode", async (req, res) => {
+  const countryCode = req.params.countryCode?.toUpperCase();
+  if (!countryCode || countryCode.length > 5) {
+    return res.status(400).json({ error: "countryCode inválido" });
+  }
+
+  const parsed = rateSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Datos inválidos" });
+  }
+
+  try {
+    const { countryName, inboundPerMin, outboundPerMin, callControlFee } = parsed.data;
+    const rate = await db.telnyxRate.upsert({
+      where: { countryCode },
+      update: {
+        countryName,
+        inboundPerMin,
+        outboundPerMin,
+        ...(callControlFee !== undefined ? { callControlFee } : {}),
+      },
+      create: {
+        countryCode,
+        countryName,
+        inboundPerMin,
+        outboundPerMin,
+        ...(callControlFee !== undefined ? { callControlFee } : {}),
+      },
+    });
+
+    logger.info({ countryCode, inboundPerMin, outboundPerMin }, "Tarifa Telnyx actualizada");
+    res.json({ rate });
+  } catch (e) {
+    logger.error({ error: (e as Error).message, countryCode }, "Error actualizando tarifa");
+    res.status(500).json({ error: "Error actualizando tarifa" });
+  }
+});
+
+/**
+ * DELETE /admin/telnyx-costs/rates/:countryCode
+ * Elimina tarifa para un país.
+ */
+adminRouter.delete("/telnyx-costs/rates/:countryCode", async (req, res) => {
+  const countryCode = req.params.countryCode?.toUpperCase();
+  try {
+    await db.telnyxRate.delete({ where: { countryCode } });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(404).json({ error: "Tarifa no encontrada" });
+  }
+});
+
+/**
+ * POST /admin/telnyx-costs/rates/bulk
+ * Sube múltiples tarifas (útil para importación CSV).
+ */
+const bulkRateSchema = z.array(rateSchema.extend({
+  countryCode: z.string().min(2).max(5)
+}));
+
+adminRouter.post("/telnyx-costs/rates/bulk", async (req, res) => {
+  const parsed = bulkRateSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Formato de tarifas inválido", details: parsed.error.issues });
+  }
+
+  try {
+    let upsertedCount = 0;
+    // Prisma upsert doesn't have createMany/upsertMany, so we use transaction
+    await db.$transaction(
+      parsed.data.map((rate) => {
+        return db.telnyxRate.upsert({
+          where: { countryCode: rate.countryCode },
+          update: {
+            countryName: rate.countryName,
+            inboundPerMin: rate.inboundPerMin,
+            outboundPerMin: rate.outboundPerMin,
+            ...(rate.callControlFee !== undefined ? { callControlFee: rate.callControlFee } : {}),
+          },
+          create: {
+            countryCode: rate.countryCode,
+            countryName: rate.countryName,
+            inboundPerMin: rate.inboundPerMin,
+            outboundPerMin: rate.outboundPerMin,
+            ...(rate.callControlFee !== undefined ? { callControlFee: rate.callControlFee } : {}),
+          },
+        });
+      })
+    );
+    upsertedCount = parsed.data.length;
+
+    logger.info({ count: upsertedCount }, "Bulk de tarifas Telnyx procesado");
+    res.json({ success: true, count: upsertedCount });
+  } catch (e) {
+    logger.error({ error: (e as Error).message }, "Error en bulk update de tarifas");
+    res.status(500).json({ error: "Error interno al guardar masivamente las tarifas" });
+  }
+});

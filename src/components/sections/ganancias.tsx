@@ -8,10 +8,12 @@ import {
   Link as LinkIcon,
   Copy,
   CheckCircle2,
+  Users,
 } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import { ApiClient, type WalletTransaction } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -23,6 +25,7 @@ export function GananciasSection() {
   const { usuario, refreshWallet } = useAppStore();
   const [saldo, setSaldo] = React.useState(0);
   const [txs, setTxs] = React.useState<WalletTransaction[]>([]);
+  const [clientes, setClientes] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [slug, setSlug] = React.useState("");
 
@@ -30,13 +33,15 @@ export function GananciasSection() {
     if (!usuario) return;
     setLoading(true);
     try {
-      const [w, t, s] = await Promise.all([
+      const [w, t, s, c] = await Promise.all([
         ApiClient.get<{ wallet: { saldo: number } }>(`/api/wallet?userId=${usuario.id}`),
         ApiClient.get<{ transactions: WalletTransaction[] }>(`/api/wallet/transactions?userId=${usuario.id}`),
-        ApiClient.get<{ settings: { registrationSlug?: string } }>(`/api/business-settings?userId=${usuario.id}`)
+        ApiClient.get<{ settings: { registrationSlug?: string } }>(`/api/business-settings?userId=${usuario.id}`),
+        ApiClient.get<{ endCustomers: any[] }>(`/api/end-customers?userId=${usuario.id}`)
       ]);
       setSaldo(w.wallet?.saldo || 0);
       setTxs(t.transactions || []);
+      setClientes(c.endCustomers || []);
       if (s.settings?.registrationSlug) {
         setSlug(s.settings.registrationSlug);
       }
@@ -170,6 +175,59 @@ export function GananciasSection() {
                 })}
               </div>
             </ScrollArea>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="shadow-sm border-white/5 mt-8">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Users className="h-4 w-4 text-primary" />
+            Clientes Registrados
+          </CardTitle>
+          <CardDescription>
+            Lista de personas que se han registrado a través de tu enlace.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {clientes.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground bg-secondary/30 rounded-lg border border-dashed">
+              <Users className="h-12 w-12 mx-auto opacity-20 mb-3" />
+              Aún no tienes clientes registrados
+            </div>
+          ) : (
+            <div className="rounded-lg border overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Nombre</TableHead>
+                    <TableHead>Teléfono</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead className="text-right">Saldo Dinero</TableHead>
+                    <TableHead className="text-right">Saldo Minutos</TableHead>
+                    <TableHead className="text-right">Registrado</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {clientes.map((c) => (
+                    <TableRow key={c.id}>
+                      <TableCell className="font-medium">{c.nombre}</TableCell>
+                      <TableCell className="font-mono text-xs">{c.telefono}</TableCell>
+                      <TableCell>{c.email || "—"}</TableCell>
+                      <TableCell className="text-right font-bold text-emerald-600">
+                        ${Number(c.saldoDinero).toFixed(2)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {Number(c.saldoMinutos).toFixed(2)} min
+                      </TableCell>
+                      <TableCell className="text-right text-xs text-muted-foreground">
+                        {format(new Date(c.createdAt), "dd MMM yyyy", { locale: es })}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>

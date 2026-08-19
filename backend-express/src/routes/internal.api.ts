@@ -819,3 +819,26 @@ internalRouter.post("/upload-logo", async (req, res) => {
     res.status(500).json({ error: "Error interno subiendo archivo", details: error.message });
   }
 });
+
+/**
+ * GET /internal/end-customers
+ * Retorna la lista de clientes registrados bajo este tenant.
+ */
+internalRouter.get("/end-customers", async (req, res) => {
+  const tenantId = req.query.userId as string;
+  if (!tenantId) {
+    return res.status(400).json({ error: "userId requerido" });
+  }
+  
+  try {
+    const endCustomers = await db.endCustomer.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: "desc" },
+    });
+    
+    res.json({ endCustomers });
+  } catch (e) {
+    logger.error({ error: (e as Error).message }, "Error listando end-customers");
+    res.status(500).json({ error: "Error listando clientes" });
+  }
+});

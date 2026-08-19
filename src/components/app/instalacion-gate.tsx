@@ -14,7 +14,7 @@ export function InstalacionGate({ amount }: { amount: number }) {
     setCargando(true);
     try {
       // Usamos el endpoint publico en el backend express directamente
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:3001";
+      const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
       const res = await fetch(`${backendUrl}/api/public/checkout`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

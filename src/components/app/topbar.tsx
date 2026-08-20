@@ -77,15 +77,15 @@ export function Topbar({
 
   return (
     <header className="h-16 border-b border-border bg-card flex items-center justify-between px-4 lg:px-6 flex-shrink-0">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 min-w-0">
         {onMenuClick && (
-          <Button variant="ghost" size="icon" className="lg:hidden" onClick={onMenuClick}>
+          <Button variant="ghost" size="icon" className="lg:hidden flex-shrink-0" onClick={onMenuClick}>
             <Menu className="h-5 w-5" />
           </Button>
         )}
-        <h1 className="text-lg font-semibold">{TITULOS[seccion]}</h1>
+        <h1 className="text-base sm:text-lg font-semibold truncate">{TITULOS[seccion]}</h1>
         {usuario?.role === "admin" && seccion.startsWith("admin") && (
-          <Badge variant="default" className="bg-amber-600 text-white">
+          <Badge variant="default" className="bg-amber-600 text-white flex-shrink-0">
             Admin
           </Badge>
         )}

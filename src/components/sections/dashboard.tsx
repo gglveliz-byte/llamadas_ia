@@ -179,23 +179,23 @@ export function DashboardSection() {
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
         {kpis.map((kpi) => {
           const Icon = kpi.icon;
           return (
-            <Card key={kpi.label} className="panel-wa">
-              <CardContent className="p-5">
-                <div className="flex items-start justify-between mb-2">
-                  <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider">
+            <Card key={kpi.label} className="panel-wa shadow-sm border-white/5">
+              <CardContent className="p-3 sm:p-5">
+                <div className="flex items-start justify-between mb-1 sm:mb-2">
+                  <span className="text-[10px] sm:text-xs text-muted-foreground font-medium uppercase tracking-wider line-clamp-1">
                     {kpi.label}
                   </span>
-                  <div className={cn("h-8 w-8 rounded-lg flex items-center justify-center", kpi.bg)}>
-                    <Icon className={cn("h-4 w-4", kpi.color)} />
+                  <div className={cn("h-6 w-6 sm:h-8 sm:w-8 rounded-lg flex items-center justify-center flex-shrink-0", kpi.bg)}>
+                    <Icon className={cn("h-3 w-3 sm:h-4 sm:w-4", kpi.color)} />
                   </div>
                 </div>
-                <div className="text-2xl font-bold">{kpi.value}</div>
+                <div className="text-lg sm:text-2xl font-bold">{kpi.value}</div>
               </CardContent>
             </Card>
           );

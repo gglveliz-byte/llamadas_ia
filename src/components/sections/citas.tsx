@@ -372,7 +372,7 @@ export function CitasSection() {
                     key={dia.toISOString()}
                     onClick={() => setDiaSeleccionado(dia)}
                     className={cn(
-                      "min-h-20 p-1.5 rounded-lg border text-left transition-colors",
+                      "min-h-14 sm:min-h-20 p-1 sm:p-1.5 rounded-lg border text-left transition-colors",
                       !enMes && "opacity-40",
                       seleccionado
                         ? "border-primary bg-primary/5"
@@ -381,25 +381,25 @@ export function CitasSection() {
                     )}
                   >
                     <div className={cn(
-                      "text-xs font-semibold mb-1",
+                      "text-[10px] sm:text-xs font-semibold mb-0.5 sm:mb-1",
                       hoy && "text-primary"
                     )}>
                       {format(dia, "d")}
                     </div>
-                    <div className="space-y-0.5">
+                    <div className="space-y-0.5 flex flex-wrap gap-0.5 sm:block sm:gap-0">
                       {citasDia.slice(0, 3).map((c) => (
                         <div
                           key={c.id}
                           className={cn(
-                            "h-1.5 rounded-full",
+                            "h-1.5 w-1.5 sm:w-auto sm:h-1.5 rounded-full",
                             STATUS_COLORS[c.status]
                           )}
                           title={`${c.customerName} · ${format(new Date(c.startTime), "HH:mm")}`}
                         />
                       ))}
                       {citasDia.length > 3 && (
-                        <div className="text-[9px] text-muted-foreground">
-                          +{citasDia.length - 3} más
+                        <div className="text-[8px] sm:text-[9px] text-muted-foreground">
+                          +{citasDia.length - 3}
                         </div>
                       )}
                     </div>

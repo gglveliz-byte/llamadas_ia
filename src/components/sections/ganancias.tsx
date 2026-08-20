@@ -196,38 +196,72 @@ export function GananciasSection() {
               Aún no tienes clientes registrados
             </div>
           ) : (
-            <div className="rounded-lg border overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Nombre</TableHead>
-                    <TableHead>Teléfono</TableHead>
-                    <TableHead>Email</TableHead>
-                    <TableHead className="text-right">Saldo Dinero</TableHead>
-                    <TableHead className="text-right">Saldo Minutos</TableHead>
-                    <TableHead className="text-right">Registrado</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {clientes.map((c) => (
-                    <TableRow key={c.id}>
-                      <TableCell className="font-medium">{c.nombre}</TableCell>
-                      <TableCell className="font-mono text-xs">{c.telefono}</TableCell>
-                      <TableCell>{c.email || "—"}</TableCell>
-                      <TableCell className="text-right font-bold text-emerald-600">
-                        ${Number(c.saldoDinero).toFixed(2)}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {Number(c.saldoMinutos).toFixed(2)} min
-                      </TableCell>
-                      <TableCell className="text-right text-xs text-muted-foreground">
-                        {format(new Date(c.createdAt), "dd MMM yyyy", { locale: es })}
-                      </TableCell>
+            <>
+              {/* Vista Desktop (Tabla) */}
+              <div className="hidden md:block rounded-lg border overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nombre</TableHead>
+                      <TableHead>Teléfono</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead className="text-right">Saldo Dinero</TableHead>
+                      <TableHead className="text-right">Saldo Minutos</TableHead>
+                      <TableHead className="text-right">Registrado</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {clientes.map((c) => (
+                      <TableRow key={c.id}>
+                        <TableCell className="font-medium">{c.nombre}</TableCell>
+                        <TableCell className="font-mono text-xs">{c.telefono}</TableCell>
+                        <TableCell>{c.email || "—"}</TableCell>
+                        <TableCell className="text-right font-bold text-emerald-600">
+                          ${Number(c.saldoDinero).toFixed(2)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {Number(c.saldoMinutos).toFixed(2)} min
+                        </TableCell>
+                        <TableCell className="text-right text-xs text-muted-foreground">
+                          {format(new Date(c.createdAt), "dd MMM yyyy", { locale: es })}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Vista Móvil (Tarjetas) */}
+              <div className="md:hidden space-y-3">
+                {clientes.map((c) => (
+                  <div key={c.id} className="p-4 rounded-xl border bg-card shadow-sm space-y-3">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <div className="font-bold text-base">{c.nombre}</div>
+                        <div className="text-xs text-muted-foreground mt-0.5">{c.email || "Sin email"}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs text-muted-foreground mb-0.5">Saldo</div>
+                        <div className="font-bold text-emerald-600 text-lg leading-none">
+                          ${Number(c.saldoDinero).toFixed(2)}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex justify-between items-end pt-3 border-t">
+                      <div className="space-y-1">
+                        <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Teléfono</div>
+                        <div className="font-mono text-sm">{c.telefono}</div>
+                      </div>
+                      <div className="text-right space-y-1">
+                        <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Minutos</div>
+                        <div className="text-sm font-medium">{Number(c.saldoMinutos).toFixed(2)} min</div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

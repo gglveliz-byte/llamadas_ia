@@ -38,10 +38,17 @@ export async function calcularComisiones(
 
   const precioDueno = tenant.settings?.precioPorMinuto?.toNumber() || precioPiso;
   
-  // 1. Margen del Dueño
-  // El dueño siempre gana la diferencia entre su precio y el piso de la plataforma.
+  // 1. Margen bruto del Dueño (markup total)
   const diferenciaPorMinuto = Math.max(0, precioDueno - precioPiso);
-  const comisionDueno = diferenciaPorMinuto * minutosComprados;
+  
+  // RevShare: La plataforma cobra un porcentaje (20%) sobre el margen del dueño
+  const adminConfigRevShare = await db.adminConfig.findUnique({ where: { clave: "porcentaje_revshare" } });
+  const revSharePorcentaje = parseFloat(adminConfigRevShare?.valor || "0.20");
+  
+  const cortePlataformaPorMinuto = diferenciaPorMinuto * revSharePorcentaje;
+  const gananciaNetaDuenoPorMinuto = diferenciaPorMinuto - cortePlataformaPorMinuto;
+  
+  const comisionDueno = gananciaNetaDuenoPorMinuto * minutosComprados;
 
   // 2. Comisión del Afiliado y Plataforma
   let comisionAfiliado = 0;
@@ -65,6 +72,7 @@ export async function calcularComisiones(
   }
 
   // La plataforma se queda con el resto del monto total, menos lo del dueño y lo del afiliado.
+  // Matemáticamente esto incluye el costo base (precioPiso) + la ganancia extra de RevShare.
   comisionPlataforma = montoTotal - comisionDueno - comisionAfiliado;
 
   // Redondear a 4 decimales

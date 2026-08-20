@@ -11,6 +11,7 @@ import { CitasSection } from "@/components/sections/citas";
 import { GananciasSection } from "@/components/sections/ganancias";
 import { AfiliadoDashboardSection } from "@/components/sections/afiliado-dashboard";
 import { InstalacionGate } from "./instalacion-gate";
+import { BottomNav } from "./bottom-nav";
 import { ConfiguracionSection } from "@/components/sections/configuracion";
 import { SimuladorSection } from "@/components/sections/simulador";
 import { SalientesSection } from "@/components/sections/salientes";
@@ -30,6 +31,7 @@ import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useSSE } from "@/hooks/use-sse";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 export function AppShell() {
   const { usuario, setUsuario, seccion, walletVersion } = useAppStore();
@@ -233,9 +235,10 @@ export function AppShell() {
           walletSaldo={walletSaldo}
           porcentajeSaldo={porcentajeSaldo}
         />
-        <main className="flex-1 overflow-y-auto wa-scroll p-4 lg:p-6 chat-bg" style={{ zoom: 0.70 }}>
+        <main className={cn("flex-1 overflow-y-auto wa-scroll p-4 lg:p-6 chat-bg", usuario?.role === "cliente" ? "pb-20 lg:pb-6" : "")} style={{ zoom: 0.70 }}>
           {renderSeccion()}
         </main>
+        <BottomNav onSeccionChange={() => setSidebarOpen(false)} />
       </div>
     </div>
   );

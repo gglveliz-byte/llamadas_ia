@@ -9,6 +9,7 @@ async function main() {
 
   // ─── Admin Config ───
   const adminConfigs = [
+    { clave: "porcentaje_revshare", valor: "0.20", descripcion: "Porcentaje (ej. 0.20 = 20%) de RevShare que cobra la plataforma sobre el markup del dueño." },
     { clave: "saldo_trial", valor: "5.00", descripcion: "Regalo inicial (USD) que se le da a un cliente nuevo al registrarse para que pruebe el servicio gratis." },
     { clave: "limite_saldo_negativo", valor: "-5.00", descripcion: "Límite máximo de deuda (en negativo) permitido antes de suspender al cliente. Ej: -5.00 significa que puede deber 5 USD antes de ser bloqueado." },
     { clave: "cobro_por_segundo", valor: "false", descripcion: "Si está activado (true), cobra los segundos exactos hablados. Si está desactivado (false), redondea hacia arriba y cobra el minuto completo (ej. 61 segs = 2 min)." },

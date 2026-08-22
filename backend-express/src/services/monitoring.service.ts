@@ -74,7 +74,9 @@ export function obtenerMetricasActuales(): Metrica {
   lastCpuUsage = currentCpuUsage;
   lastCpuCheckTime = currentCpuCheckTime;
 
-  const ram = (1 - os.freemem() / os.totalmem()) * 100;
+  // RAM usada por ESTE proceso (RSS = Resident Set Size) vs la memoria total del contenedor
+  const rss = process.memoryUsage().rss;
+  const ram = Math.min(100, (rss / os.totalmem()) * 100);
   const heap = process.memoryUsage().heapUsed / 1024 / 1024;
   const latencia =
     latenciasRecientes.length > 0

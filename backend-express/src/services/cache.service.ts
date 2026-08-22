@@ -54,6 +54,12 @@ export async function getRedis() {
     });
     if (conectado) {
       redisClient = client;
+      client.on("end", () => {
+        if (redisClient === client) {
+          redisClient = null;
+          logger.warn("Redis conexión cerrada - estado reseteado para reconectar");
+        }
+      });
       logger.info("Redis conectado exitosamente");
       return redisClient;
     }
@@ -71,9 +77,13 @@ export async function getRedis() {
 
 export async function cacheGet<T>(clave: string): Promise<T | null> {
   const redis = await getRedis();
-  if (redis) {
-    const valor = await redis.get(clave);
-    return valor ? JSON.parse(valor) : null;
+  if (redis && redis.status === "ready") {
+    try {
+      const valor = await redis.get(clave);
+      return valor ? JSON.parse(valor) : null;
+    } catch (error) {
+      logger.warn({ error }, "Error en cacheGet, usando memory cache");
+    }
   }
   const cached = memoryCache.get(clave);
   if (!cached || cached.expira < Date.now()) {
@@ -86,28 +96,40 @@ export async function cacheGet<T>(clave: string): Promise<T | null> {
 export async function cacheSet<T>(clave: string, valor: T, ttlSegundos: number = 60): Promise<void> {
   const redis = await getRedis();
   const str = JSON.stringify(valor);
-  if (redis) {
-    await redis.setex(clave, ttlSegundos, str);
-    return;
+  if (redis && redis.status === "ready") {
+    try {
+      await redis.setex(clave, ttlSegundos, str);
+      return;
+    } catch (error) {
+      logger.warn({ error }, "Error en cacheSet, usando memory cache");
+    }
   }
   memoryCache.set(clave, { valor: str, expira: Date.now() + ttlSegundos * 1000 });
 }
 
 export async function cacheDel(clave: string): Promise<void> {
   const redis = await getRedis();
-  if (redis) {
-    await redis.del(clave);
-    return;
+  if (redis && redis.status === "ready") {
+    try {
+      await redis.del(clave);
+      return;
+    } catch (error) {
+      logger.warn({ error }, "Error en cacheDel, usando memory cache");
+    }
   }
   memoryCache.delete(clave);
 }
 
 export async function cacheDelPattern(patron: string): Promise<void> {
   const redis = await getRedis();
-  if (redis) {
-    const claves = await redis.keys(patron);
-    if (claves.length > 0) await redis.del(...claves);
-    return;
+  if (redis && redis.status === "ready") {
+    try {
+      const claves = await redis.keys(patron);
+      if (claves.length > 0) await redis.del(...claves);
+      return;
+    } catch (error) {
+      logger.warn({ error }, "Error en cacheDelPattern, usando memory cache");
+    }
   }
   // Memory: eliminar claves que matcheen el patrón (simple)
   const regex = new RegExp(patron.replace(/\*/g, ".*"));

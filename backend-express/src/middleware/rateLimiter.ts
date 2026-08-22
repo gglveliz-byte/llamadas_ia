@@ -27,23 +27,27 @@ export async function rateLimiter(req: Request, res: Response, next: NextFunctio
   const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0] || req.ip || "unknown";
   const ahora = Date.now();
 
-  const redis = await getStore();
-  if (redis) {
-    const key = `ratelimit:${ip}`;
-    const current = await redis.incr(key);
-    if (current === 1) {
-      await redis.pexpire(key, RATE_LIMIT_WINDOW);
-    }
-    if (current > RATE_LIMIT_MAX) {
-      const ttl = await redis.pttl(key);
-      res.status(429).json({
-        error: "Rate limit excedido",
-        retryAfter: Math.ceil(ttl / 1000),
-      });
+  try {
+    const redis = await getStore();
+    if (redis && redis.status === "ready") {
+      const key = `ratelimit:${ip}`;
+      const current = await redis.incr(key);
+      if (current === 1) {
+        await redis.pexpire(key, RATE_LIMIT_WINDOW);
+      }
+      if (current > RATE_LIMIT_MAX) {
+        const ttl = await redis.pttl(key);
+        res.status(429).json({
+          error: "Rate limit excedido",
+          retryAfter: Math.ceil(ttl / 1000),
+        });
+        return;
+      }
+      next();
       return;
     }
-    next();
-    return;
+  } catch (error) {
+    // Si falla Redis (ej. conexión cerrada), continuamos con fallback
   }
 
   // Fallback memoria

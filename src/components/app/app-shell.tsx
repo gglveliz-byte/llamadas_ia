@@ -135,9 +135,16 @@ export function AppShell() {
         break;
       case "recarga_exitosa":
         toast.success("💰 Recarga acreditada");
+        useAppStore.getState().refreshWallet();
+        break;
+      case "installation_paid":
+        toast.success("🎉 ¡Pago de instalación confirmado! Bienvenido a Voice IA.");
+        if (usuario) {
+          useAppStore.getState().setUsuario({ ...usuario, installationPaid: true });
+        }
         break;
     }
-  }, [eventos]);
+  }, [eventos, usuario]);
 
   if (cargandoSesion) {
     return (

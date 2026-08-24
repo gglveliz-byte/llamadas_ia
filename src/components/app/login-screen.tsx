@@ -23,11 +23,19 @@ export function LoginScreen() {
   const [forgotEmail, setForgotEmail] = React.useState("");
   const [forgotLoading, setForgotLoading] = React.useState(false);
   const [showPassword, setShowPassword] = React.useState(false);
+  const [affiliateRef, setAffiliateRef] = React.useState<string | undefined>(undefined);
 
   React.useEffect(() => {
-    // Check URL params for verification status
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
+      
+      // Capturar slug de afiliado si existe y guardarlo en estado
+      const ref = params.get("ref");
+      if (ref) {
+        setAffiliateRef(ref);
+      }
+
+      // Check URL params for verification status
       if (params.get("verificado") === "ok") {
         toast.success("Tu cuenta ha sido verificada correctamente. Ya puedes iniciar sesión.");
         // Clean URL to prevent showing toast again on reload
@@ -114,14 +122,9 @@ export function LoginScreen() {
     }
     setLoading(true);
     try {
-      let affiliateSlug: string | undefined = undefined;
-      if (typeof window !== 'undefined') {
-        const params = new URLSearchParams(window.location.search);
-        affiliateSlug = params.get("ref") || undefined;
-      }
       await ApiClient.post<{
         mensaje: string;
-      }>("/api/auth/register", { email, password, businessName: businessName || undefined, affiliateSlug });
+      }>("/api/auth/register", { email, password, businessName: businessName || undefined, affiliateSlug: affiliateRef });
       toast.success("Cuenta creada. Revisa tu email para verificarla.");
       setPassword("");
       setModo("login");

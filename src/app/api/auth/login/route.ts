@@ -42,6 +42,8 @@ export async function POST(req: NextRequest) {
         isVerified: user.isVerified,
         isSuspended: user.isSuspended,
         telnyxChildAccountId: user.telnyxChildAccountId,
+        installationPaid: user.installationPaid,
+        installationAmount: user.installationAmount ? Number(user.installationAmount) : 0,
       },
       token,
       refreshToken,

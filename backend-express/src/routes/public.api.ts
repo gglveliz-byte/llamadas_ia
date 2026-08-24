@@ -33,6 +33,10 @@ publicRouter.get("/business/:slug", async (req, res) => {
           select: {
             id: true,
             businessName: true,
+            phoneNumbers: {
+              where: { isActive: true },
+              select: { phoneNumber: true }
+            }
           }
         }
       }
@@ -54,6 +58,7 @@ publicRouter.get("/business/:slug", async (req, res) => {
       landingColorFondo: settings.landingColorFondo,
       landingImagenFondo: settings.landingImagenFondo,
       aiRegion: settings.aiRegion,
+      businessPhones: settings.user.phoneNumbers.map(p => p.phoneNumber),
     });
   } catch (error) {
     logger.error(error, "Error en GET /business/:slug");
@@ -172,7 +177,7 @@ publicRouter.post("/checkout", async (req, res) => {
       },
       redirect_url: tipo === "instalacion" 
         ? (process.env.DOMINIO_FRONTEND || "http://localhost:3000").replace("http://localhost", "https://lvh.me") + "/?verificado=ok"
-        : (process.env.DOMINIO_FRONTEND || "http://localhost:3000").replace("http://localhost", "https://lvh.me") + `/r/${settings.registrationSlug}?pago=exito`
+        : (process.env.DOMINIO_FRONTEND || "http://localhost:3000").replace("http://localhost", "https://lvh.me") + `/r/${settings.registrationSlug || tenantId}?pago=exito`
     });
 
     let checkoutUrl = checkout.purchase_url;

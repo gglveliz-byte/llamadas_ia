@@ -17,6 +17,7 @@ interface BusinessData {
   landingLogo?: string;
   landingDescripcion?: string;
   aiRegion?: string;
+  businessPhones?: string[];
 }
 
 // Función auxiliar para obtener datos del país según la región
@@ -48,8 +49,20 @@ export default function PublicLandingPage() {
   
   const [procesando, setProcesando] = useState(false);
   const [countryData, setCountryData] = useState({ code: "", flag: "🌐" });
-
+  
+  const [pagoExitoso, setPagoExitoso] = useState(false);
+  
   useEffect(() => {
+    // Check for success param
+    if (typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get("pago") === "exito") {
+        setPagoExitoso(true);
+        // Opcionalmente quitar el parámetro de la URL para que no vuelva a salir al recargar
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+    }
+
     async function fetchData() {
       try {
         const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
@@ -173,114 +186,155 @@ export default function PublicLandingPage() {
       <main className="flex-1 flex items-center justify-center p-4 sm:p-8">
         <div className="w-full max-w-md bg-card border rounded-2xl shadow-lg p-6 sm:p-8">
           
-          <div className="mb-6">
-            <h2 className="text-2xl font-bold mb-2">
-              {nombreMostrar ? `Agenda tu cita en ${nombreMostrar}` : "Agenda tu cita"}
-            </h2>
-            {data.landingDescripcion && (
-              <p className="text-muted-foreground text-sm">
-                {data.landingDescripcion}
-              </p>
-            )}
-          </div>
-
-          <div className="space-y-5">
-            <div className="space-y-2">
-              <Label htmlFor="nombre">Nombre Completo</Label>
-              <Input 
-                id="nombre" 
-                placeholder="Ej. Ana García" 
-                value={nombre}
-                onChange={(e) => setNombre(e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="email">Correo Electrónico (Opcional)</Label>
-              <Input 
-                id="email" 
-                type="email"
-                placeholder="Ej. ana@gmail.com" 
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="telefono">Teléfono</Label>
-              <div className="flex">
-                <div className="flex items-center justify-center bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 border-r-0 rounded-l-md px-3 text-sm font-medium whitespace-nowrap text-muted-foreground shadow-sm">
-                  <span className="mr-1.5 text-base">{countryData.flag}</span>
-                  {countryData.code}
-                </div>
-                <Input 
-                  id="telefono" 
-                  type="tel"
-                  placeholder="99 123 4567" 
-                  value={telefono}
-                  onChange={(e) => setTelefono(e.target.value)}
-                  dir="ltr"
-                  className="rounded-l-none"
-                />
+          {pagoExitoso ? (
+            <div className="text-center py-6">
+              <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
               </div>
+              <h2 className="text-2xl font-bold mb-2 text-green-700">¡Pago Exitoso!</h2>
+              <p className="text-muted-foreground text-base mb-6">
+                Tu saldo ha sido recargado correctamente. Ya puedes comunicarte con nuestro asistente virtual con IA.
+              </p>
+              
+              <div className="bg-slate-50 dark:bg-slate-900 border rounded-xl p-6 mb-6">
+                <p className="text-sm font-medium text-slate-500 mb-3">Llama ahora al siguiente número:</p>
+                {data.businessPhones && data.businessPhones.length > 0 ? (
+                  <div className="space-y-3">
+                    {data.businessPhones.map((phone, i) => (
+                      <div key={i} className="flex items-center justify-center gap-2">
+                        <span className="text-2xl font-bold tracking-wider">{phone}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-lg font-semibold text-orange-500">
+                    (El negocio aún no tiene un número asignado)
+                  </p>
+                )}
+              </div>
+              
+              <Button 
+                variant="outline" 
+                className="w-full"
+                onClick={() => setPagoExitoso(false)}
+              >
+                Hacer otra recarga
+              </Button>
             </div>
+          ) : (
+            <>
+              <div className="mb-6">
+                <h2 className="text-2xl font-bold mb-2">
+                  {nombreMostrar ? `Agenda tu cita en ${nombreMostrar}` : "Agenda tu cita"}
+                </h2>
+                {data.landingDescripcion && (
+                  <p className="text-muted-foreground text-sm">
+                    {data.landingDescripcion}
+                  </p>
+                )}
+              </div>
 
-            <div className="pt-2">
-              <Tabs defaultValue="prepago" onValueChange={(v) => setMetodoPago(v as any)} className="w-full">
-                <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="prepago">Pago Exacto</TabsTrigger>
-                  <TabsTrigger value="retencion">Depósito</TabsTrigger>
-                </TabsList>
-                
-                <div className="mt-6">
-                  <TabsContent value="prepago" className="space-y-4">
-                    <div className="bg-muted/50 p-4 rounded-xl border">
-                      <div className="flex justify-between items-center mb-4">
-                        <span className="text-sm font-medium">Tiempo deseado</span>
-                        <span className="font-semibold">{minutos} min</span>
-                      </div>
-                      <Input 
-                        type="range" 
-                        min={5} 
-                        max={60} 
-                        step={5} 
-                        value={minutos} 
-                        onChange={(e) => setMinutos(parseInt(e.target.value))}
-                        className="w-full cursor-pointer mb-4"
-                      />
-                      <div className="flex justify-between items-end pt-3 border-t">
-                        <span className="text-xs text-muted-foreground">${precioMinuto.toFixed(2)} USD / minuto</span>
-                        <span className="text-xl font-bold text-primary">
-                          ${totalPrepago} USD
-                        </span>
-                      </div>
-                    </div>
-                  </TabsContent>
-                  
-                  <TabsContent value="retencion">
-                    <div className="bg-muted/50 p-4 rounded-xl border text-sm text-muted-foreground">
-                      <p className="mb-2">
-                        Se realizará una retención de garantía por <strong>${deposito} USD</strong>.
-                      </p>
-                      <p>
-                        Al terminar la llamada, se cobrarán <strong>${precioMinuto.toFixed(2)} USD</strong> por minuto hablado y se te reembolsará la diferencia inmediatamente.
-                      </p>
-                    </div>
-                  </TabsContent>
+              <div className="space-y-5">
+                <div className="space-y-2">
+                  <Label htmlFor="nombre">Nombre Completo</Label>
+                  <Input 
+                    id="nombre" 
+                    placeholder="Ej. Ana García" 
+                    value={nombre}
+                    onChange={(e) => setNombre(e.target.value)}
+                  />
                 </div>
-              </Tabs>
-            </div>
 
-            <Button 
-              className="w-full h-12 text-base font-medium"
-              onClick={handleCheckout}
-              disabled={procesando}
-            >
-              {procesando 
-                ? "Procesando..." 
-                : (metodoPago === "prepago" ? `Pagar $${totalPrepago} USD` : `Pagar Garantía de $${deposito} USD`)}
-            </Button>
-          </div>
+                <div className="space-y-2">
+                  <Label htmlFor="email">Correo Electrónico (Opcional)</Label>
+                  <Input 
+                    id="email" 
+                    type="email"
+                    placeholder="Ej. ana@gmail.com" 
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="telefono">Teléfono</Label>
+                  <div className="flex">
+                    <div className="flex items-center justify-center bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 border-r-0 rounded-l-md px-3 text-sm font-medium whitespace-nowrap text-muted-foreground shadow-sm">
+                      <span className="mr-1.5 text-base">{countryData.flag}</span>
+                      {countryData.code}
+                    </div>
+                    <Input 
+                      id="telefono" 
+                      type="tel"
+                      placeholder="99 123 4567" 
+                      value={telefono}
+                      onChange={(e) => setTelefono(e.target.value)}
+                      dir="ltr"
+                      className="rounded-l-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <Tabs defaultValue="prepago" onValueChange={(v) => setMetodoPago(v as any)} className="w-full">
+                    <TabsList className="grid w-full grid-cols-2">
+                      <TabsTrigger value="prepago">Pago Exacto</TabsTrigger>
+                      <TabsTrigger value="retencion">Depósito</TabsTrigger>
+                    </TabsList>
+                    
+                    <div className="mt-6">
+                      <TabsContent value="prepago" className="space-y-4">
+                        <div className="bg-muted/50 p-4 rounded-xl border">
+                          <div className="flex justify-between items-center mb-4">
+                            <span className="text-sm font-medium">Tiempo deseado</span>
+                            <span className="font-semibold">{minutos} min</span>
+                          </div>
+                          <Input 
+                            type="range" 
+                            min={5} 
+                            max={60} 
+                            step={5} 
+                            value={minutos} 
+                            onChange={(e) => setMinutos(parseInt(e.target.value))}
+                            className="w-full cursor-pointer mb-4"
+                          />
+                          <div className="flex justify-between items-end pt-3 border-t">
+                            <span className="text-xs text-muted-foreground">${precioMinuto.toFixed(2)} USD / minuto</span>
+                            <span className="text-xl font-bold text-primary">
+                              ${totalPrepago} USD
+                            </span>
+                          </div>
+                        </div>
+                      </TabsContent>
+                      
+                      <TabsContent value="retencion">
+                        <div className="bg-muted/50 p-4 rounded-xl border text-sm text-muted-foreground">
+                          <p className="mb-2">
+                            Se realizará una retención de garantía por <strong>${deposito} USD</strong>.
+                          </p>
+                          <p>
+                            Al terminar la llamada, se cobrarán <strong>${precioMinuto.toFixed(2)} USD</strong> por minuto hablado y se te reembolsará la diferencia inmediatamente.
+                          </p>
+                        </div>
+                      </TabsContent>
+                    </div>
+                  </Tabs>
+                </div>
+
+                <Button 
+                  className="w-full h-12 text-base font-medium"
+                  onClick={handleCheckout}
+                  disabled={procesando}
+                >
+                  {procesando 
+                    ? "Procesando..." 
+                    : (metodoPago === "prepago" ? `Pagar $${totalPrepago} USD` : `Pagar Garantía de $${deposito} USD`)}
+                </Button>
+              </div>
+            </>
+          )}
           
           <div className="mt-6 sm:hidden border-t pt-6">
              <CustomerBalance tenantId={data.tenantId} />

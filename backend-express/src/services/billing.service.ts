@@ -44,14 +44,18 @@ export async function verificarSaldo(tenantId: string, endCustomerPhone: string)
   }
 
   // MODO DEMO LIBRE:
-  // Si el llamante no tiene saldo prepagado o no está registrado, permitimos la llamada si la cuenta
-  // del negocio (Tenant Wallet) tiene saldo disponible para financiar la demo.
+  // Exclusivo para la cuenta de demostración del sistema (lveliz213@hotmail.com).
+  // Si el llamante no tiene saldo prepagado o no está registrado, permitimos la llamada si esta cuenta
+  // tiene saldo disponible en su Wallet para financiar la demo libre.
+  const tenantUser = await db.user.findUnique({ where: { id: tenantId }, select: { email: true } });
+  const esCuentaDemo = tenantUser?.email === "lveliz213@hotmail.com";
+
   const tenantWallet = await db.wallet.findUnique({ where: { userId: tenantId } });
   const saldoTenant = tenantWallet?.saldo.toNumber() ?? 0;
   const adminConfig = await db.adminConfig.findUnique({ where: { clave: "precio_minuto_minimo" } });
   const precioPiso = parseFloat(adminConfig?.valor || "0.50");
 
-  if (saldoTenant >= precioPiso) {
+  if (esCuentaDemo && saldoTenant >= precioPiso) {
     // Auto-registrar al llamante como prospecto en EndCustomer si no existe
     if (!endCustomer) {
       await db.endCustomer.create({
@@ -96,8 +100,13 @@ export async function debitarLlamada(
   let minutosConsumidos = cobroPorSegundo ? duracionSegundos / 60 : Math.ceil(duracionSegundos / 60);
   const monto = Math.round(precioMinuto * minutosConsumidos * 10000) / 10000;
 
-  // Si no hay endCustomer o el endCustomer no tiene saldo prepago ni depósito, debitamos de la Wallet del Dueño (llamada demo)
+  // Si no hay endCustomer o el endCustomer no tiene saldo prepago ni depósito, debitamos de la Wallet únicamente si es la cuenta demo (lveliz213@hotmail.com)
   if (!endCustomer || (endCustomer.saldoMinutos.toNumber() <= 0 && endCustomer.saldoDinero.toNumber() <= 0)) {
+    const tenantUser = await db.user.findUnique({ where: { id: tenantId }, select: { email: true } });
+    if (tenantUser?.email !== "lveliz213@hotmail.com") {
+      return { monto: 0, saldoNuevo: 0 };
+    }
+
     const lock = await db.callMetric.updateMany({
       where: { callSid: callSid, fin: null },
       data: { fin: new Date() }

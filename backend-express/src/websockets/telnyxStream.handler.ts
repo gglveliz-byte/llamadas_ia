@@ -221,7 +221,7 @@ export function registrarTelnyxStreamHandler(wss: import("ws").WebSocketServer):
 
     // Verificar saldo antes de iniciar (después de registrar listeners)
     await incrementarConcurrenciaTelnyx();
-    const saldoOk = await verificarSaldo(userId, customerPhone);
+    const { saldoOk } = await verificarSaldo(userId, customerPhone);
     if (!saldoOk) {
       logger.warn({ callControlId, userId }, "Llamada rechazada por saldo insuficiente");
       ws.close(1011, "Saldo insuficiente");

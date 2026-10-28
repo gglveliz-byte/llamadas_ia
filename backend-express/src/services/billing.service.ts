@@ -20,33 +20,56 @@ export async function verificarSaldo(tenantId: string, endCustomerPhone: string)
     where: { tenantId_telefono: { tenantId, telefono: telefonoLimpio } }
   });
 
-  if (!endCustomer) {
-    logger.warn({ tenantId, endCustomerPhone: telefonoLimpio }, "EndCustomer no encontrado al verificar saldo");
-    return { saldoOk: false, maxSegundos: 0 };
-  }
-
   const tenantSettings = await db.businessSettings.findUnique({ where: { userId: tenantId } });
   const precioMinuto = tenantSettings?.precioPorMinuto.toNumber() || 0.50;
 
   let maxSegundos = 0;
 
-  // Tiene minutos prepagados?
-  if (endCustomer.saldoMinutos.toNumber() > 0) {
-    maxSegundos += Math.floor(endCustomer.saldoMinutos.toNumber() * 60);
+  if (endCustomer) {
+    // Tiene minutos prepagados?
+    if (endCustomer.saldoMinutos.toNumber() > 0) {
+      maxSegundos += Math.floor(endCustomer.saldoMinutos.toNumber() * 60);
+    }
+
+    // Tiene depósito de retención de dinero? (Solo consideramos saldo > 0 ya que EndCustomer no puede ir a negativo en débito)
+    if (endCustomer.saldoDinero.toNumber() > 0) {
+      maxSegundos += Math.floor((endCustomer.saldoDinero.toNumber() / precioMinuto) * 60);
+    }
   }
 
-  // Tiene depósito de retención de dinero? (Solo consideramos saldo > 0 ya que EndCustomer no puede ir a negativo en débito)
-  if (endCustomer.saldoDinero.toNumber() > 0) {
-    maxSegundos += Math.floor((endCustomer.saldoDinero.toNumber() / precioMinuto) * 60);
-  }
-
-  // Solo permitimos la llamada si tiene saldo para al menos 1 minuto (60 segundos)
+  // Si el cliente final tiene saldo prepago para al menos 1 minuto (60 segundos)
   if (maxSegundos >= 60) {
     // Telnyx max limit is 14400 (4 hours)
     return { saldoOk: true, maxSegundos: Math.min(maxSegundos, 14400) };
   }
 
-  logger.info({ endCustomerPhone, saldoMinutos: endCustomer.saldoMinutos.toNumber(), saldoDinero: endCustomer.saldoDinero.toNumber() }, "Saldo insuficiente - llamada rechazada");
+  // MODO DEMO LIBRE:
+  // Si el llamante no tiene saldo prepagado o no está registrado, permitimos la llamada si la cuenta
+  // del negocio (Tenant Wallet) tiene saldo disponible para financiar la demo.
+  const tenantWallet = await db.wallet.findUnique({ where: { userId: tenantId } });
+  const saldoTenant = tenantWallet?.saldo.toNumber() ?? 0;
+  const adminConfig = await db.adminConfig.findUnique({ where: { clave: "precio_minuto_minimo" } });
+  const precioPiso = parseFloat(adminConfig?.valor || "0.50");
+
+  if (saldoTenant >= precioPiso) {
+    // Auto-registrar al llamante como prospecto en EndCustomer si no existe
+    if (!endCustomer) {
+      await db.endCustomer.create({
+        data: {
+          tenantId,
+          telefono: telefonoLimpio,
+          nombre: `Llamante Demo ${telefonoLimpio.slice(-4)}`,
+        }
+      }).catch(() => {});
+    }
+
+    // Límite generoso de hasta 10 minutos (600s) por llamada demo para proteger el saldo
+    const segundosPermitidos = Math.min(Math.floor((saldoTenant / precioPiso) * 60), 600);
+    logger.info({ tenantId, endCustomerPhone: telefonoLimpio, saldoTenant, segundosPermitidos }, "🟢 Llamada demo libre autorizada con saldo de la cuenta");
+    return { saldoOk: true, maxSegundos: Math.max(segundosPermitidos, 60) };
+  }
+
+  logger.info({ endCustomerPhone, saldoMinutos: endCustomer?.saldoMinutos?.toNumber() ?? 0, saldoDinero: endCustomer?.saldoDinero?.toNumber() ?? 0, saldoTenant }, "Saldo insuficiente tanto en cliente como en cuenta - llamada rechazada");
   return { saldoOk: false, maxSegundos: 0 };
 }
 
@@ -66,16 +89,32 @@ export async function debitarLlamada(
     where: { tenantId_telefono: { tenantId, telefono: telefonoLimpio } }
   });
 
-  if (!endCustomer) {
-    return { monto: 0, saldoNuevo: 0 };
-  }
-
   const tenantSettings = await db.businessSettings.findUnique({ where: { userId: tenantId } });
   const precioMinuto = tenantSettings?.precioPorMinuto.toNumber() || 0.50;
   const cobroPorSegundo = (await getConfig("cobro_por_segundo")) === "true";
   
   let minutosConsumidos = cobroPorSegundo ? duracionSegundos / 60 : Math.ceil(duracionSegundos / 60);
   const monto = Math.round(precioMinuto * minutosConsumidos * 10000) / 10000;
+
+  // Si no hay endCustomer o el endCustomer no tiene saldo prepago ni depósito, debitamos de la Wallet del Dueño (llamada demo)
+  if (!endCustomer || (endCustomer.saldoMinutos.toNumber() <= 0 && endCustomer.saldoDinero.toNumber() <= 0)) {
+    const lock = await db.callMetric.updateMany({
+      where: { callSid: callSid, fin: null },
+      data: { fin: new Date() }
+    });
+    if (lock.count === 0) {
+      const wallet = await db.wallet.findUnique({ where: { userId: tenantId } });
+      return { monto: 0, saldoNuevo: wallet?.saldo.toNumber() ?? 0 };
+    }
+
+    const res = await debitarConcepto(
+      tenantId,
+      monto,
+      `Llamada Demo Entrante de ${telefonoLimpio}`,
+      callSid
+    );
+    return { monto, saldoNuevo: res.saldoNuevo };
+  }
 
   let resultado: { monto: number; saldoNuevo: number };
   try {

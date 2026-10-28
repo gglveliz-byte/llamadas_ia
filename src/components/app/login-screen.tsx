@@ -178,7 +178,17 @@ export function LoginScreen() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-4">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (modo === "login") {
+                  loginReal();
+                } else {
+                  register();
+                }
+              }}
+              className="space-y-4"
+            >
               <div className="space-y-2">
                 <Label htmlFor="email">Correo electrónico</Label>
                 <div className="relative">
@@ -225,42 +235,43 @@ export function LoginScreen() {
                   ¿Olvidé contraseña?
                 </button>
               </div>
-            </div>
 
-            {modo === "register" && (
-              <div className="space-y-2 mt-4">
-                <Label htmlFor="businessName">Nombre del negocio (opcional)</Label>
-                <Input
-                  id="businessName"
-                  placeholder="Mi Negocio"
-                  value={businessName}
-                  onChange={(e) => setBusinessName(e.target.value)}
-                />
-              </div>
-            )}
+              {modo === "register" && (
+                <div className="space-y-2">
+                  <Label htmlFor="businessName">Nombre del negocio (opcional)</Label>
+                  <Input
+                    id="businessName"
+                    placeholder="Mi Negocio"
+                    value={businessName}
+                    onChange={(e) => setBusinessName(e.target.value)}
+                  />
+                </div>
+              )}
 
-            {modo === "login" ? (
-              <Button
-                className="w-full"
-                onClick={loginReal}
-                disabled={loading || !email || !password}
-              >
-                {loading ? "Cargando..." : "Entrar"}
-                <LogIn className="h-4 w-4 ml-2" />
-              </Button>
-            ) : (
-              <Button
-                className="w-full"
-                onClick={register}
-                disabled={loading || !email || !password}
-              >
-                {loading ? "Creando cuenta..." : "Crear cuenta"}
-                <UserPlus className="h-4 w-4 ml-2" />
-              </Button>
-            )}
+              {modo === "login" ? (
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={loading || !email || !password}
+                >
+                  {loading ? "Cargando..." : "Entrar"}
+                  <LogIn className="h-4 w-4 ml-2" />
+                </Button>
+              ) : (
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={loading || !email || !password}
+                >
+                  {loading ? "Creando cuenta..." : "Crear cuenta"}
+                  <UserPlus className="h-4 w-4 ml-2" />
+                </Button>
+              )}
+            </form>
 
-            <div className="text-center">
+            <div className="text-center mt-4">
               <button
+                type="button"
                 onClick={() => setModo(modo === "login" ? "register" : "login")}
                 className="text-xs text-primary hover:underline"
               >

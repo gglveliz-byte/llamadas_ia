@@ -13,3 +13,6 @@ next-env.d.ts
 .vercel
 .claude
 .skills/
+*.webm
+*.mp4
+*.mp3
